@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+downloads/
+data/
+.db
+.sqlite
+.sqlite3
+backups/
+robodownload.png
+robodownloadbot.png
