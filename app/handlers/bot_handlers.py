@@ -3191,6 +3191,9 @@ async def _ensure_membership_for_message(
     user_id: int,
     lang: str,
 ) -> bool:
+    if not _is_private_chat(message.chat.type):
+        return True
+
     missing_channels = await _missing_required_channels(
         bot=message.bot,
         db=ctx.db,
@@ -3217,6 +3220,8 @@ async def _ensure_membership_for_callback(
 ) -> bool:
     if not callback.message:
         return False
+    if not _is_private_chat(callback.message.chat.type):
+        return True
 
     missing_channels = await _missing_required_channels(
         bot=callback.message.bot,
@@ -3255,7 +3260,7 @@ async def _missing_required_channels(
 
         username = str(channel.get('username') or '').strip()
         title = str(channel.get('title') or '').strip()
-        label = f'@{username}' if username else (title or str(chat_id))
+        label = title or (f'@{username}' if username else str(chat_id))
         url = f'https://t.me/{username}' if username else ''
         missing.append({'title': label, 'url': url})
     return missing

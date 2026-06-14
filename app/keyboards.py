@@ -189,9 +189,9 @@ def build_force_sub_keyboard(
         title = channel.get('title') or channel.get('username') or 'Channel'
         url = channel.get('url') or ''
         if url:
-            kb.button(text=f'📢 {title}', url=url)
+            kb.button(text=title, url=url)
         else:
-            kb.button(text=f'🔒 {title}', callback_data='force:unavailable')
+            kb.button(text=title, callback_data='force:unavailable')
 
     kb.button(text=check_label, callback_data='force:check')
     kb.adjust(1)
