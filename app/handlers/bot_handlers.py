@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import contextlib
@@ -1330,14 +1330,16 @@ def build_router(ctx: AppContext) -> Router:
             await callback.answer(tr(lang, 'force_sub_ok'), show_alert=True)
             return
 
-        await _edit_message_content(
-            callback.message,
-            tr(lang, 'force_sub_required'),
-            reply_markup=build_force_sub_keyboard(
-                channels=missing_channels,
-                check_label=tr(lang, 'force_sub_check'),
-            ),
-        )
+        try:
+            await callback.message.edit_text(
+                tr(lang, 'force_sub_required'),
+                reply_markup=build_force_sub_keyboard(
+                    channels=missing_channels,
+                    check_label=tr(lang, 'force_sub_check'),
+                ),
+            )
+        except TelegramBadRequest:
+            pass
         await callback.answer(tr(lang, 'force_sub_still_missing'), show_alert=True)
 
     @router.message(F.text)
@@ -3232,13 +3234,6 @@ async def _ensure_membership_for_callback(
         return True
 
     await callback.answer(tr(lang, 'force_sub_still_missing'), show_alert=True)
-    await callback.message.answer(
-        tr(lang, 'force_sub_required'),
-        reply_markup=build_force_sub_keyboard(
-            channels=missing_channels,
-            check_label=tr(lang, 'force_sub_check'),
-        ),
-    )
     return False
 
 
