@@ -25,6 +25,7 @@ class BackupService:
         db: Database,
         db_path: Path,
         backup_dir: Path,
+        log_file_path: Path | str = 'logs/robodownload.log',
         enabled: bool = True,
         daily_time: str = '03:30',
         backup_tz: str = 'Asia/Tehran',
@@ -34,6 +35,7 @@ class BackupService:
         self._db = db
         self._db_path = db_path
         self._backup_dir = backup_dir
+        self._log_file_path = Path(log_file_path)
         self._enabled = bool(enabled)
         self._daily_time = str(daily_time or '03:30').strip() or '03:30'
         self._backup_tz = str(backup_tz or 'Asia/Tehran').strip() or 'Asia/Tehran'
@@ -59,7 +61,13 @@ class BackupService:
         with contextlib.suppress(asyncio.CancelledError):
             await self._task
 
-    async def send_backup_to_chat(self, *, chat_id: int, lang: str | None = None) -> Path:
+    async def send_backup_to_chat(
+        self,
+        *,
+        chat_id: int,
+        lang: str | None = None,
+        manual: bool = True,
+    ) -> Path:
         backup_file = await asyncio.to_thread(self._create_backup_file)
         try:
             selected_lang = lang if lang is not None else await self._db.get_user_language(chat_id)
@@ -67,7 +75,17 @@ class BackupService:
                 chat_id=chat_id,
                 backup_file=backup_file,
                 lang=selected_lang,
+                manual=manual,
             )
+            if self._log_file_path.exists() and self._log_file_path.stat().st_size > 0:
+                try:
+                    await self._send_log_file(
+                        chat_id=chat_id,
+                        lang=selected_lang,
+                        manual=manual,
+                    )
+                except Exception:
+                    logger.exception('Failed to send log file to chat %s', chat_id)
             return backup_file
         finally:
             await asyncio.to_thread(self._cleanup_old_backups)
@@ -107,9 +125,13 @@ class BackupService:
         tz = _resolve_tz(self._backup_tz)
         stamp = datetime.now(tz).strftime('%Y%m%d-%H%M%S')
         backup_path = self._backup_dir / f'bot-{stamp}.db'
-        with sqlite3.connect(str(self._db_path)) as src:
-            with sqlite3.connect(str(backup_path)) as dst:
-                src.backup(dst)
+        src = sqlite3.connect(str(self._db_path))
+        dst = sqlite3.connect(str(backup_path))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
 
         if not backup_path.exists() or backup_path.stat().st_size <= 0:
             raise RuntimeError('Backup file is empty or missing')
@@ -134,11 +156,25 @@ class BackupService:
                     chat_id=owner_id,
                     backup_file=backup_file,
                     lang=lang,
+                    manual=False,
                 )
+                if self._log_file_path.exists() and self._log_file_path.stat().st_size > 0:
+                    await self._send_log_file(
+                        chat_id=owner_id,
+                        lang=lang,
+                        manual=False,
+                    )
             except Exception:
-                logger.exception('Failed to send backup to owner %s', owner_id)
+                logger.exception('Failed to send backup or log to owner %s', owner_id)
 
-    async def _send_backup_file(self, *, chat_id: int, backup_file: Path, lang: str) -> None:
+    async def _send_backup_file(
+        self,
+        *,
+        chat_id: int,
+        backup_file: Path,
+        lang: str,
+        manual: bool = False,
+    ) -> None:
         input_file = FSInputFile(str(backup_file), filename=backup_file.name)
         normalized_lang = str(lang).strip().lower()
         timestamp_tz = timezone.utc if normalized_lang == 'en' else _resolve_tz(self._backup_tz)
@@ -148,6 +184,33 @@ class BackupService:
             backup_filename=backup_file.name,
             backup_size_bytes=backup_file.stat().st_size,
             backup_timestamp=backup_timestamp,
+            manual=manual,
+        )
+        await self._bot.send_document(
+            chat_id=chat_id,
+            document=input_file,
+            caption=caption,
+        )
+
+    async def _send_log_file(
+        self,
+        *,
+        chat_id: int,
+        lang: str,
+        manual: bool = False,
+    ) -> None:
+        if not self._log_file_path.exists() or self._log_file_path.stat().st_size <= 0:
+            return
+        input_file = FSInputFile(str(self._log_file_path), filename=self._log_file_path.name)
+        normalized_lang = str(lang).strip().lower()
+        timestamp_tz = timezone.utc if normalized_lang == 'en' else _resolve_tz(self._backup_tz)
+        log_timestamp = datetime.now(timestamp_tz).strftime('%Y-%m-%d %H:%M:%S')
+        caption = _log_caption(
+            lang=lang,
+            log_filename=self._log_file_path.name,
+            log_size_bytes=self._log_file_path.stat().st_size,
+            log_timestamp=log_timestamp,
+            manual=manual,
         )
         await self._bot.send_document(
             chat_id=chat_id,
@@ -220,19 +283,49 @@ def _backup_caption(
     backup_filename: str,
     backup_size_bytes: int,
     backup_timestamp: str,
+    manual: bool = False,
 ) -> str:
     backup_size_kb = backup_size_bytes / 1024
     rendered_size = f'{backup_size_kb:.1f}'.rstrip('0').rstrip('.') + ' KB'
     if str(lang).strip().lower() == 'en':
+        title = '🗂 Manual database backup' if manual else '🗂 Daily database backup'
         return (
-            '🗂 Daily database backup\n'
+            f'{title}\n'
             f'File: {backup_filename}\n'
             f'Size: {rendered_size}\n'
             f'UTC: {backup_timestamp}'
         )
+    title = '🗂 دریافت دستی دیتابیس' if manual else '🗂 بکاپ روزانه دیتابیس'
     return (
-        '🗂 بکاپ روزانه دیتابیس\n'
+        f'{title}\n'
         f'فایل: {backup_filename}\n'
         f'حجم: {rendered_size}\n'
         f'تاریخ: {backup_timestamp}'
+    )
+
+
+def _log_caption(
+    *,
+    lang: str,
+    log_filename: str,
+    log_size_bytes: int,
+    log_timestamp: str,
+    manual: bool = False,
+) -> str:
+    log_size_kb = log_size_bytes / 1024
+    rendered_size = f'{log_size_kb:.1f}'.rstrip('0').rstrip('.') + ' KB'
+    if str(lang).strip().lower() == 'en':
+        title = '📜 Manual log export' if manual else '📜 Daily log export'
+        return (
+            f'{title}\n'
+            f'File: {log_filename}\n'
+            f'Size: {rendered_size}\n'
+            f'UTC: {log_timestamp}'
+        )
+    title = '📜 خروجی دستی فایل لاگ' if manual else '📜 فایل لاگ روزانه'
+    return (
+        f'{title}\n'
+        f'فایل: {log_filename}\n'
+        f'حجم: {rendered_size}\n'
+        f'تاریخ: {log_timestamp}'
     )

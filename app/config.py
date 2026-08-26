@@ -6,6 +6,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+STATIC_LOG_DIR = Path("logs")
+STATIC_LOG_FILE_PATH = Path("logs/robodownload.log")
+
 
 @dataclass(slots=True)
 class Settings:
@@ -14,6 +17,8 @@ class Settings:
     download_dir: Path
     db_path: Path
     backup_dir: Path
+    log_dir: Path
+    log_file_path: Path
     group_welcome_photo_path: Path | None
     max_concurrent_downloads: int
     max_file_size_mb: int
@@ -40,8 +45,6 @@ class Settings:
     probe_worker_threads: int
     download_worker_threads: int
     download_timeout_seconds: int
-    log_level: str
-
 
 
 def _parse_admin_ids(raw: str) -> set[int]:
@@ -84,6 +87,8 @@ def load_settings() -> Settings:
         download_dir=download_dir,
         db_path=db_path,
         backup_dir=backup_dir,
+        log_dir=STATIC_LOG_DIR.resolve(),
+        log_file_path=STATIC_LOG_FILE_PATH.resolve(),
         group_welcome_photo_path=group_welcome_photo_path,
         max_concurrent_downloads=int(os.getenv('MAX_CONCURRENT_DOWNLOADS', '3')),
         max_file_size_mb=int(os.getenv('MAX_FILE_SIZE_MB', '49')),
@@ -110,5 +115,4 @@ def load_settings() -> Settings:
         probe_worker_threads=max(1, int(os.getenv('PROBE_WORKER_THREADS', '4'))),
         download_worker_threads=max(1, int(os.getenv('DOWNLOAD_WORKER_THREADS', '6'))),
         download_timeout_seconds=max(0, int(os.getenv('DOWNLOAD_TIMEOUT_SECONDS', '600'))),
-        log_level=os.getenv('LOG_LEVEL', 'INFO').strip().upper(),
     )

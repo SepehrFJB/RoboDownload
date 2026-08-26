@@ -2703,20 +2703,20 @@ def _admin_block_owner_only_text(lang: str) -> str:
 
 def _admin_backup_owner_only_text(lang: str) -> str:
     if lang == 'fa':
-        return '⛔️ فقط مدیرکل می تواند دیتابیس را دریافت کند.'
-    return '⛔️ Only the owner can get the database.'
+        return '⛔️ فقط مدیرکل می‌تواند دیتابیس و لاگ را دریافت کند.'
+    return '⛔️ Only the owner can get the database and logs.'
 
 
 def _admin_backup_preparing_text(lang: str) -> str:
     if lang == 'fa':
-        return '⏳ در حال آماده‌سازی بکاپ دیتابیس...'
-    return '⏳ Preparing database backup...'
+        return '⏳ در حال آماده‌سازی فایل دیتابیس و لاگ...'
+    return '⏳ Preparing database and log backup...'
 
 
 def _admin_backup_failed_text(lang: str) -> str:
     if lang == 'fa':
-        return '⛔️ ساخت یا ارسال بکاپ دیتابیس ناموفق بود.'
-    return '⛔️ Failed to create or send database backup.'
+        return '⚠️ خطا در ساخت یا ارسال فایل دیتابیس و لاگ.'
+    return '⚠️ Failed to create or send database and log backup.'
 
 
 def _admin_block_prompt_text(lang: str) -> str:

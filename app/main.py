@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -20,11 +20,12 @@ from app.utils.request_store import RequestStore
 
 async def run() -> None:
     settings = load_settings()
-    configure_logging(settings.log_level)
+    configure_logging(log_dir=settings.log_dir, log_filename=settings.log_file_path.name)
 
     settings.download_dir.mkdir(parents=True, exist_ok=True)
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
     settings.backup_dir.mkdir(parents=True, exist_ok=True)
+    settings.log_dir.mkdir(parents=True, exist_ok=True)
 
     db = Database(str(settings.db_path))
     await db.init()
@@ -79,6 +80,7 @@ async def run() -> None:
         db=db,
         db_path=settings.db_path,
         backup_dir=settings.backup_dir,
+        log_file_path=settings.log_file_path,
         enabled=settings.backup_enabled,
         daily_time=settings.backup_daily_time,
         backup_tz=settings.backup_tz,

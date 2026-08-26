@@ -9,3 +9,5 @@ data/
 backups/
 robodownload.png
 robodownloadbot.png
+logs/
+*.log
