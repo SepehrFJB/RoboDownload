@@ -8,7 +8,6 @@ from pathlib import Path
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 DEFAULT_LOG_DIR = Path("logs")
 DEFAULT_LOG_FILE = "robodownload.log"
-DEFAULT_LOG_FILE_PATH = DEFAULT_LOG_DIR / DEFAULT_LOG_FILE
 DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 DEFAULT_BACKUP_COUNT = 5
 

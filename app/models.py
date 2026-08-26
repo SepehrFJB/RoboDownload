@@ -72,8 +72,3 @@ class DownloadResult:
     artifacts: list[DownloadArtifact]
     quality_label: str | None = None
     thumbnail_url: str | None = None
-
-
-@dataclass(slots=True)
-class UserPreferences:
-    default_mode: DownloadMode

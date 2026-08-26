@@ -1,11 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import aiosqlite
 import json
 from contextlib import asynccontextmanager
 from typing import Any
 
-from app.models import DownloadMode, UserPreferences
+from app.models import DownloadMode
 from app.models import Platform
 from app.services.error_classifier import classify_download_error
 
@@ -192,34 +192,6 @@ class Database:
             )
             await db.commit()
 
-    async def get_preferences(self, user_id: int) -> UserPreferences:
-        async with self._connect() as db:
-            cursor = await db.execute(
-                'SELECT default_mode FROM users WHERE user_id = ?', (user_id,)
-            )
-            row = await cursor.fetchone()
-            if row is None:
-                return UserPreferences(default_mode=DownloadMode.VIDEO_720)
-            try:
-                mode = DownloadMode(row[0])
-            except ValueError:
-                mode = DownloadMode.VIDEO_720
-            return UserPreferences(default_mode=mode)
-
-    async def set_default_mode(self, user_id: int, mode: DownloadMode) -> None:
-        async with self._connect() as db:
-            await db.execute(
-                '''
-                INSERT INTO users(user_id, default_mode, updated_at)
-                VALUES(?, ?, datetime('now'))
-                ON CONFLICT(user_id)
-                DO UPDATE SET
-                    default_mode = excluded.default_mode,
-                    updated_at = datetime('now')
-                ''',
-                (user_id, mode.value),
-            )
-            await db.commit()
 
     async def get_user_language(self, user_id: int) -> str:
         async with self._connect() as db:
@@ -285,22 +257,6 @@ class Database:
             )
             await db.commit()
 
-    async def get_stats(self) -> dict[str, int]:
-        async with self._connect() as db:
-            total_users = await self._fetch_scalar(db, 'SELECT COUNT(*) FROM users')
-            total_downloads = await self._fetch_scalar(db, 'SELECT COUNT(*) FROM downloads')
-            successful = await self._fetch_scalar(
-                db, "SELECT COUNT(*) FROM downloads WHERE status = 'success'"
-            )
-            failed = await self._fetch_scalar(
-                db, "SELECT COUNT(*) FROM downloads WHERE status = 'failed'"
-            )
-        return {
-            'users': total_users,
-            'downloads': total_downloads,
-            'success': successful,
-            'failed': failed,
-        }
 
     async def get_detailed_stats(self) -> dict[str, Any]:
         async with self._connect() as db:
