@@ -6,8 +6,21 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-STATIC_LOG_DIR = Path("logs")
-STATIC_LOG_FILE_PATH = Path("logs/robodownload.log")
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_DOWNLOAD_DIR = BASE_DIR / 'downloads'
+STATIC_DB_PATH = BASE_DIR / 'data' / 'bot.db'
+STATIC_BACKUP_DIR = BASE_DIR / 'backups'
+STATIC_LOG_DIR = BASE_DIR / 'logs'
+STATIC_LOG_FILE_PATH = STATIC_LOG_DIR / 'robodownload.log'
+
+STATIC_DAILY_RESET_TIME = '00:00'
+STATIC_DAILY_RESET_TZ = 'Asia/Tehran'
+STATIC_DAILY_OWNER_UNLIMITED = True
+
+STATIC_BACKUP_ENABLED = True
+STATIC_BACKUP_TIME = '03:30'
+STATIC_BACKUP_TZ = 'Asia/Tehran'
+STATIC_BACKUP_KEEP_COUNT = 10
 
 
 @dataclass(slots=True)
@@ -75,11 +88,14 @@ def load_settings() -> Settings:
     if not token:
         raise RuntimeError('BOT_TOKEN is required')
 
-    download_dir = Path(os.getenv('DOWNLOAD_DIR', 'downloads')).resolve()
-    db_path = Path(os.getenv('DB_PATH', 'data/bot.db')).resolve()
-    backup_dir = Path(os.getenv('BACKUP_DIR', 'backups')).resolve()
+    download_dir = STATIC_DOWNLOAD_DIR
+    db_path = STATIC_DB_PATH
+    backup_dir = STATIC_BACKUP_DIR
+    log_dir = STATIC_LOG_DIR
+    log_file_path = STATIC_LOG_FILE_PATH
+
     group_welcome_photo_raw = os.getenv('GROUP_WELCOME_PHOTO_PATH', '').strip()
-    group_welcome_photo_path = Path(group_welcome_photo_raw).resolve() if group_welcome_photo_raw else None
+    group_welcome_photo_path = (BASE_DIR / group_welcome_photo_raw).resolve() if group_welcome_photo_raw else None
 
     return Settings(
         bot_token=token,
@@ -87,8 +103,8 @@ def load_settings() -> Settings:
         download_dir=download_dir,
         db_path=db_path,
         backup_dir=backup_dir,
-        log_dir=STATIC_LOG_DIR.resolve(),
-        log_file_path=STATIC_LOG_FILE_PATH.resolve(),
+        log_dir=log_dir,
+        log_file_path=log_file_path,
         group_welcome_photo_path=group_welcome_photo_path,
         max_concurrent_downloads=int(os.getenv('MAX_CONCURRENT_DOWNLOADS', '3')),
         max_file_size_mb=int(os.getenv('MAX_FILE_SIZE_MB', '49')),
@@ -96,17 +112,17 @@ def load_settings() -> Settings:
         daily_user_success_limit=int(os.getenv('DAILY_USER_SUCCESS_LIMIT', '50')),
         daily_admin_success_limit=int(os.getenv('DAILY_ADMIN_SUCCESS_LIMIT', '50')),
         daily_global_success_limit=int(os.getenv('DAILY_GLOBAL_SUCCESS_LIMIT', '5000')),
-        daily_limit_reset_time=os.getenv('DAILY_LIMIT_RESET_TIME', '00:00').strip() or '00:00',
-        daily_limit_reset_tz=os.getenv('DAILY_LIMIT_RESET_TZ', 'Asia/Tehran').strip() or 'Asia/Tehran',
-        daily_owner_unlimited=os.getenv('DAILY_OWNER_UNLIMITED', '1').strip().lower() not in {'0', 'false', 'off'},
+        daily_limit_reset_time=STATIC_DAILY_RESET_TIME,
+        daily_limit_reset_tz=STATIC_DAILY_RESET_TZ,
+        daily_owner_unlimited=STATIC_DAILY_OWNER_UNLIMITED,
         cookie_alert_enabled=os.getenv('COOKIE_ALERT_ENABLED', '1').strip().lower() not in {'0', 'false', 'off'},
         cookie_alert_threshold=int(os.getenv('COOKIE_ALERT_THRESHOLD', '3')),
         cookie_alert_window_minutes=int(os.getenv('COOKIE_ALERT_WINDOW_MINUTES', '60')),
         cookie_alert_cooldown_minutes=int(os.getenv('COOKIE_ALERT_COOLDOWN_MINUTES', '300')),
-        backup_enabled=os.getenv('BACKUP_ENABLED', '1').strip().lower() not in {'0', 'false', 'off'},
-        backup_daily_time=os.getenv('BACKUP_DAILY_TIME', '03:30').strip() or '03:30',
-        backup_tz=os.getenv('BACKUP_TZ', 'Asia/Tehran').strip() or 'Asia/Tehran',
-        backup_keep_count=max(1, int(os.getenv('BACKUP_KEEP_COUNT', '10'))),
+        backup_enabled=STATIC_BACKUP_ENABLED,
+        backup_daily_time=STATIC_BACKUP_TIME,
+        backup_tz=STATIC_BACKUP_TZ,
+        backup_keep_count=STATIC_BACKUP_KEEP_COUNT,
         request_ttl_seconds=int(os.getenv('REQUEST_TTL_SECONDS', '900')),
         user_cooldown_seconds=int(os.getenv('USER_COOLDOWN_SECONDS', '10')),
         ffmpeg_binary=os.getenv('FFMPEG_BINARY', 'ffmpeg').strip() or 'ffmpeg',
