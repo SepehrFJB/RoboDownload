@@ -16,45 +16,59 @@ Advanced Telegram bot for downloading media from multiple platforms with `yt-dlp
 - Persian/English UI (`/lang`), default language: Persian
 - Background queue + concurrent workers
 - Per-user cooldown + one-active-job guard
-- Daily success limits (user/admin/global) with configurable reset window
+- Daily success limits (user/admin/global)
 - Telegram file-id cache for faster repeated sends
 - Cookie manager in admin panel (per platform)
 - Admin tools: stats, user inspect, broadcast, managers, block list, force-sub management
+- Rotating UTF-8 file logger (`logs/robodownload.log`)
+- Automatic DB & Log backup (local retention + daily owner delivery + manual export button)
 - Automatic cleanup for temporary downloaded files
-- Automatic DB backup (local + owner delivery)
 - Docker-ready deployment
 
 ## Stack
-- Python 3.14.x (recommended)
+- Python 3.14.x (recommended, 3.11+ supported)
 - aiogram 3.x
 - yt-dlp
 - gallery-dl
 - SQLite (aiosqlite)
 - ffmpeg
 
-## Setup (Easy)
-1. Install Python 3.14.x (recommended; 3.11+ supported) and ffmpeg.
-2. Copy `.env.example` to `.env` and fill values.
-3. Install dependencies:
+## Setup (Recommended / Standard)
+1. Install Python 3.11+ and `ffmpeg`.
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv .venv
+   # Windows:
+   .venv\Scripts\activate
+   # Linux/macOS:
+   source .venv/bin/activate
+   ```
+3. Copy `.env.example` to `.env` and fill in `BOT_TOKEN` and `ADMIN_IDS`:
+   ```bash
+   # Windows:
+   copy .env.example .env
+   # Linux/macOS:
+   cp .env.example .env
+   ```
+4. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-4. Run:
+5. Run:
    ```bash
    python bot.py
    ```
 
-## Setup (Server, one-shot install)
-On Debian/Ubuntu servers, install Python runtime + `ffmpeg` + Python dependencies together:
+## Setup (Optional: Server One-Shot Script)
+On Debian/Ubuntu servers, install Python runtime + `ffmpeg` + virtual environment + dependencies all together:
 ```bash
 chmod +x install_server.sh
 ./install_server.sh
 ```
-The installer exits with an error if detected Python is lower than `3.11`.
 
-## Setup (Docker)
+## Setup (Optional: Docker)
 1. Create `.env` from `.env.example`.
-2. Build and run:
+2. Build and run in background:
    ```bash
    docker compose up -d --build
    ```
@@ -62,37 +76,26 @@ The installer exits with an error if detected Python is lower than `3.11`.
 
 ## Environment Variables
 - `BOT_TOKEN`: Telegram bot token (required)
-- `ADMIN_IDS`: comma-separated Telegram user IDs for admin panel access
-- `DOWNLOAD_DIR`: temporary media directory
-- `DB_PATH`: SQLite DB path
-- `BACKUP_DIR`: local backup directory
+- `ADMIN_IDS`: comma-separated Telegram user IDs for admin panel access (required)
 - `GROUP_WELCOME_PHOTO_PATH`: optional photo path for the group welcome message
-- `MAX_CONCURRENT_DOWNLOADS`: global concurrent jobs
-- `MAX_FILE_SIZE_MB`: max file size allowed for upload
-- `YOUTUBE_MAX_DURATION_MINUTES`: max allowed YouTube duration
-- `DAILY_USER_SUCCESS_LIMIT`: daily successful downloads per normal user
-- `DAILY_ADMIN_SUCCESS_LIMIT`: daily successful downloads per normal admin
-- `DAILY_GLOBAL_SUCCESS_LIMIT`: daily successful downloads for whole bot
-- `DAILY_LIMIT_RESET_TIME`: daily reset time (`HH:MM`)
-- `DAILY_LIMIT_RESET_TZ`: timezone name for daily reset (e.g. `Asia/Tehran`)
-- `DAILY_OWNER_UNLIMITED`: owner unlimited daily quota (`1/0`)
-- `COOKIE_ALERT_ENABLED`: enable cookie-expiry style alerts (`1/0`)
-- `COOKIE_ALERT_THRESHOLD`: failures threshold inside window to trigger alert
-- `COOKIE_ALERT_WINDOW_MINUTES`: alert counting window (minutes)
-- `COOKIE_ALERT_COOLDOWN_MINUTES`: minimum minutes between repeated alerts
-- `BACKUP_ENABLED`: enable automatic backups (`1/0`)
-- `BACKUP_DAILY_TIME`: backup time (`HH:MM`)
-- `BACKUP_TZ`: timezone name for backup scheduling
-- `BACKUP_KEEP_COUNT`: maximum local backup files to keep
-- `REQUEST_TTL_SECONDS`: TTL for URL action buttons
-- `USER_COOLDOWN_SECONDS`: cooldown between user jobs
-- `FFMPEG_BINARY`: ffmpeg executable path/name
-- `YTDLP_JS_RUNTIMES`: JS runtimes for yt-dlp (YouTube challenge solving), e.g. `node`
-- `YTDLP_REMOTE_COMPONENTS`: remote components for yt-dlp, e.g. `ejs:github`
-- `PROBE_WORKER_THREADS`: metadata/probe worker threads
-- `DOWNLOAD_WORKER_THREADS`: download worker threads
-- `DOWNLOAD_TIMEOUT_SECONDS`: timeout per download job
-- `LOG_LEVEL`: e.g. `INFO`, `DEBUG`
+- `MAX_CONCURRENT_DOWNLOADS`: global concurrent jobs (default: 3)
+- `MAX_FILE_SIZE_MB`: max file size allowed for upload (default: 49)
+- `YOUTUBE_MAX_DURATION_MINUTES`: max allowed YouTube duration (default: 30)
+- `DAILY_USER_SUCCESS_LIMIT`: daily successful downloads per normal user (default: 50)
+- `DAILY_ADMIN_SUCCESS_LIMIT`: daily successful downloads per normal admin (default: 50)
+- `DAILY_GLOBAL_SUCCESS_LIMIT`: daily successful downloads for whole bot (default: 5000)
+- `COOKIE_ALERT_ENABLED`: enable cookie-expiry style alerts (default: 1)
+- `COOKIE_ALERT_THRESHOLD`: failures threshold inside window to trigger alert (default: 3)
+- `COOKIE_ALERT_WINDOW_MINUTES`: alert counting window (minutes, default: 60)
+- `COOKIE_ALERT_COOLDOWN_MINUTES`: minimum minutes between repeated alerts (default: 300)
+- `REQUEST_TTL_SECONDS`: TTL for URL action buttons (default: 900)
+- `USER_COOLDOWN_SECONDS`: cooldown between user jobs (default: 10)
+- `FFMPEG_BINARY`: ffmpeg executable path/name (default: ffmpeg)
+- `YTDLP_JS_RUNTIMES`: JS runtimes for yt-dlp challenge solving (default: node)
+- `YTDLP_REMOTE_COMPONENTS`: remote components for yt-dlp (default: ejs:github)
+- `PROBE_WORKER_THREADS`: metadata/probe worker threads (default: 4)
+- `DOWNLOAD_WORKER_THREADS`: download worker threads (default: 6)
+- `DOWNLOAD_TIMEOUT_SECONDS`: timeout per download job (default: 600)
 
 ## Commands
 - `/start` start + register user

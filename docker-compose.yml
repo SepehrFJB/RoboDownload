@@ -7,3 +7,5 @@ services:
     volumes:
       - ./downloads:/app/downloads
       - ./data:/app/data
+      - ./backups:/app/backups
+      - ./logs:/app/logs

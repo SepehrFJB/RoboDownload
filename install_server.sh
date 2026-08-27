@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 if ! command -v apt-get >/dev/null 2>&1; then
@@ -8,8 +8,9 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
+echo "==> Updating packages and installing ffmpeg, python3, python3-venv..."
 sudo apt-get update
-sudo apt-get install -y --no-install-recommends ffmpeg python3 python3-pip
+sudo apt-get install -y --no-install-recommends ffmpeg python3 python3-pip python3-venv
 sudo apt-get clean
 
 python3 - <<'PY'
@@ -21,7 +22,22 @@ if (ver.major, ver.minor) < (3, 11):
     raise SystemExit(1)
 PY
 
-python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
+echo "==> Setting up Python virtual environment (.venv)..."
+if [ ! -d ".venv" ]; then
+  python3 -m venv .venv
+fi
 
-echo "Done: ffmpeg + Python runtime + Python dependencies installed successfully."
+echo "==> Installing Python dependencies inside .venv..."
+./.venv/bin/pip install --upgrade pip
+./.venv/bin/pip install -r requirements.txt
+
+echo ""
+echo "==============================================================="
+echo "Done: ffmpeg + Python .venv + all dependencies installed!"
+echo ""
+echo "To run the bot:"
+echo "  source .venv/bin/activate && python bot.py"
+echo ""
+echo "Or run in background with PM2:"
+echo "  pm2 start ./.venv/bin/python --name robodownload -- bot.py"
+echo "==============================================================="
