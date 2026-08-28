@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
@@ -32,7 +32,7 @@ ADMIN_BUTTONS: dict[str, dict[str, str]] = {
     'fa': {
         'inspect_user': '🔎 بررسی کاربر',
         'broadcast': '✍️ پیام همگانی',
-        'cookie': '🍪 کوکی',
+        'cookie': '🍪 کوکی ربات',
         'cookie_list': '📜 لیست کوکی‌ها',
         'cookie_set': '➕ افزودن/ویرایش کوکی',
         'cookie_remove': '➖ حذف کوکی',
@@ -50,6 +50,8 @@ ADMIN_BUTTONS: dict[str, dict[str, str]] = {
         'blocks_list': '📜 لیست مسدودی‌ها',
         'blocks_add': '➕ افزودن مسدودی',
         'blocks_remove': '➖ حذف مسدودی',
+        'pause_bot': '⏸ توقف موقت ربات (Pause)',
+        'resume_bot': '▶️ فعال‌سازی مجدد ربات (Resume)',
         'database_backup': '📥 دریافت دیتابیس و لاگ',
         'fsub_status': '📊 وضعیت',
         'fsub_add': '💠 افزودن کانال',
@@ -63,7 +65,7 @@ ADMIN_BUTTONS: dict[str, dict[str, str]] = {
     'en': {
         'inspect_user': '🔎 Check User',
         'broadcast': '✍️ Broadcast',
-        'cookie': '🍪 Cookie',
+        'cookie': '🍪 Bot Cookies',
         'cookie_list': '📜 Cookie list',
         'cookie_set': '➕ Add/Update cookie',
         'cookie_remove': '➖ Remove cookie',
@@ -81,6 +83,8 @@ ADMIN_BUTTONS: dict[str, dict[str, str]] = {
         'blocks_list': '📜 Blocked list',
         'blocks_add': '➕ Add block',
         'blocks_remove': '➖ Remove block',
+        'pause_bot': '⏸ Pause Bot',
+        'resume_bot': '▶️ Resume Bot',
         'database_backup': '📥 Get Database & Logs',
         'fsub_status': '📊 Status',
         'fsub_add': '💠 Add channel',
@@ -217,6 +221,13 @@ def force_sub_toggle_button_variants() -> set[str]:
     )
 
 
+def pause_toggle_button_variants() -> set[str]:
+    return (
+        all_admin_button_variants('pause_bot')
+        | all_admin_button_variants('resume_bot')
+    )
+
+
 def broadcast_mode_button_variants(mode_name: str) -> set[str]:
     return {
         ADMIN_BUTTONS['fa'][mode_name],
@@ -267,7 +278,7 @@ def build_force_sub_admin_keyboard(lang: str, force_sub_enabled: bool = True) ->
     toggle_key = 'fsub_toggle_disable' if force_sub_enabled else 'fsub_toggle_enable'
     kb.button(text=admin_button_text(toggle_key, lang))
     kb.button(text=admin_button_text('back', lang))
-    kb.adjust(1, 2, 2)
+    kb.adjust(1, 2, 1, 1)
     return kb.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
@@ -341,13 +352,15 @@ def build_cookie_platform_keyboard(lang: str, platforms: list[str]) -> ReplyKeyb
     return kb.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
-def build_admin_blocks_keyboard(lang: str) -> ReplyKeyboardMarkup:
+def build_admin_blocks_keyboard(lang: str, is_paused: bool = False) -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardBuilder()
     kb.button(text=admin_button_text('blocks_list', lang))
     kb.button(text=admin_button_text('blocks_remove', lang))
     kb.button(text=admin_button_text('blocks_add', lang))
+    toggle_key = 'resume_bot' if is_paused else 'pause_bot'
+    kb.button(text=admin_button_text(toggle_key, lang))
     kb.button(text=admin_button_text('back', lang))
-    kb.adjust(1, 2, 1)
+    kb.adjust(1, 2, 1, 1)
     return kb.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 

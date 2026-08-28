@@ -38,6 +38,7 @@ from app.keyboards import (
     build_force_sub_keyboard,
     build_language_keyboard,
     force_sub_toggle_button_variants,
+    pause_toggle_button_variants,
     mode_label,
 )
 from app.models import DownloadMode, DownloadRequest, PendingRequest, Platform
@@ -105,6 +106,8 @@ def build_router(ctx: AppContext) -> Router:
         'blocks_list',
         'blocks_add',
         'blocks_remove',
+        'pause_bot',
+        'resume_bot',
         'database_backup',
         'fsub_status',
         'fsub_add',
@@ -141,6 +144,10 @@ def build_router(ctx: AppContext) -> Router:
             if await _is_request_blocked(db=ctx.db, user_id=user_id, chat_id=message.chat.id):
                 if not _is_group_chat(message.chat.type):
                     await message.answer(_blocked_access_text(lang))
+                return
+            if await ctx.db.is_bot_paused():
+                if not _is_group_chat(message.chat.type):
+                    await message.answer(_bot_paused_maintenance_text(lang))
                 return
         if user_id not in ctx.admin_ids:
             is_allowed = await _ensure_membership_for_message(
@@ -403,9 +410,35 @@ def build_router(ctx: AppContext) -> Router:
             return
 
         admin_states.pop(user_id, None)
+        is_paused = await ctx.db.is_bot_paused()
         await message.answer(
-            _admin_blocks_menu_text(lang),
-            reply_markup=build_admin_blocks_keyboard(lang),
+            _admin_blocks_menu_text(lang, is_paused=is_paused),
+            reply_markup=build_admin_blocks_keyboard(lang, is_paused=is_paused),
+        )
+
+    @router.message(F.text.in_(pause_toggle_button_variants()))
+    async def admin_pause_toggle_button_handler(message: Message) -> None:
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
+        lang = await ctx.db.get_user_language(user_id)
+        if user_id not in ctx.admin_ids:
+            await message.answer(tr(lang, 'admins_only'), reply_markup=ReplyKeyboardRemove())
+            return
+
+        role = await ctx.db.get_bot_admin_role(user_id)
+        if role != 'owner':
+            await message.answer(
+                _admin_block_owner_only_text(lang),
+                reply_markup=build_admin_panel_keyboard(lang),
+            )
+            return
+
+        new_paused_state = await ctx.db.toggle_bot_paused()
+        result_text = _admin_pause_toggle_result_text(lang, new_paused_state)
+        await message.answer(
+            result_text,
+            reply_markup=build_admin_blocks_keyboard(lang, is_paused=new_paused_state),
         )
 
     @router.message(F.text.in_(all_admin_button_variants('blocks_list')))
@@ -1360,6 +1393,10 @@ def build_router(ctx: AppContext) -> Router:
                 if not _is_group_chat(message.chat.type):
                     await message.answer(_blocked_access_text(lang))
                 return
+            if await ctx.db.is_bot_paused():
+                if not _is_group_chat(message.chat.type):
+                    await message.answer(_bot_paused_maintenance_text(lang))
+                return
         if user_id not in ctx.admin_ids:
             is_allowed = await _ensure_membership_for_message(
                 message=message,
@@ -1650,6 +1687,9 @@ def build_router(ctx: AppContext) -> Router:
         if user_id not in ctx.admin_ids:
             if await _is_request_blocked(db=ctx.db, user_id=user_id, chat_id=callback.message.chat.id):
                 await callback.answer(_blocked_access_text(lang), show_alert=True)
+                return
+            if await ctx.db.is_bot_paused():
+                await callback.answer(_bot_paused_maintenance_alert(lang), show_alert=True)
                 return
         if user_id not in ctx.admin_ids:
             is_allowed = await _ensure_membership_for_callback(
@@ -2388,12 +2428,12 @@ def _resolve_cookie_platform(text: str) -> str | None:
 def _admin_cookie_menu_text(lang: str) -> str:
     if lang == 'fa':
         return (
-            '🍪 مدیریت کوکی\n\n'
+            '🍪 مدیریت کوکی ربات\n\n'
             'در این بخش می‌توانید برای هر پلتفرم کوکی جدا ثبت یا حذف کنید.\n'
             'این تنظیمات در دیتابیس ذخیره می‌شود و بعد از ری‌استارت ربات هم می‌ماند.'
         )
     return (
-        '🍪 Cookie management\n\n'
+        '🍪 Bot cookie management\n\n'
         'Here you can set/remove a separate cookie for each platform.\n'
         'Cookies are saved in database and persist after restart.'
     )
@@ -2804,15 +2844,61 @@ def _with_target_notification_status(text: str, *, lang: str, notified: bool) ->
     return f'{text}\n\n⚠️ The notification message could not be delivered.'
 
 
-def _admin_blocks_menu_text(lang: str) -> str:
+def _admin_blocks_menu_text(lang: str, is_paused: bool = False) -> str:
+    if lang == 'fa':
+        status_text = '⏸ وضعیت ربات: موقتاً متوقف است' if is_paused else '▶️ وضعیت ربات: فعال و آنلاین است'
+        return (
+            '📍 مدیریت مسدودی‌ها و توقف ربات\n\n'
+            f'{status_text}\n\n'
+            'در این بخش می‌توانید وضعیت کلی ربات را متوقف/فعال کنید یا کاربران و گروه‌های خاص را مسدود کنید.'
+        )
+    status_text = '⏸ Bot status: Paused' if is_paused else '▶️ Bot status: Active'
+    return (
+        '📍 Block & Pause management\n\n'
+        f'{status_text}\n\n'
+        'Here you can pause/resume the bot or manage blocked users/groups.'
+    )
+
+
+def _bot_paused_maintenance_text(lang: str) -> str:
     if lang == 'fa':
         return (
-            '📍 مدیریت مسدودی‌ها\n\n'
-            'در این بخش می‌توانید لیست مسدودی‌ها را ببینید، مسدودی جدید اضافه کنید یا حذف کنید.'
+            '⏸ ربات موقتاً جهت به‌روزرسانی و تعمیرات متوقف است.\n'
+            'لطفاً کمی بعد دوباره تلاش کنید.'
         )
     return (
-        '📍 Block management\n\n'
-        'Here you can view blocked targets, add a new block, or remove a block.'
+        '⏸ The bot is temporarily paused for maintenance.\n'
+        'Please try again later.'
+    )
+
+
+def _bot_paused_maintenance_alert(lang: str) -> str:
+    if lang == 'fa':
+        return '⏸ ربات موقتاً جهت به‌روزرسانی و تعمیرات متوقف است.'
+    return '⏸ The bot is temporarily paused for maintenance.'
+
+
+def _admin_pause_toggle_result_text(lang: str, is_paused: bool) -> str:
+    if lang == 'fa':
+        if is_paused:
+            return (
+                '⏸ ربات با موفقیت موقتاً متوقف شد.\n\n'
+                '⚠️ کاربران عادی در پیوی و گروه‌ها امکان ارسال درخواست دانلود ندارند.\n'
+                '👑 دسترسی شما و مدیران ربات همچنان فعال است.'
+            )
+        return (
+            '▶️ ربات با موفقیت مجدداً فعال شد.\n\n'
+            '✅ هم‌اکنون تمامی کاربران می‌توانند از امکانات ربات استفاده کنند.'
+        )
+    if is_paused:
+        return (
+            '⏸ Bot paused successfully.\n\n'
+            '⚠️ Normal users cannot send download requests.\n'
+            '👑 Admins still have full access.'
+        )
+    return (
+        '▶️ Bot resumed successfully.\n\n'
+        '✅ All users can now use the bot.'
     )
 
 

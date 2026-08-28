@@ -746,6 +746,37 @@ class Database:
         await self.set_force_sub_enabled(new_state)
         return new_state
 
+    async def is_bot_paused(self) -> bool:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "SELECT value FROM bot_settings WHERE key = 'bot_paused'"
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return False
+        value = str(row[0]).strip().lower()
+        return value in {'1', 'true', 'on', 'enabled', 'paused'}
+
+    async def set_bot_paused(self, paused: bool) -> None:
+        value = '1' if paused else '0'
+        async with self._connect() as db:
+            await db.execute(
+                '''
+                INSERT INTO bot_settings(key, value)
+                VALUES('bot_paused', ?)
+                ON CONFLICT(key)
+                DO UPDATE SET value = excluded.value
+                ''',
+                (value,),
+            )
+            await db.commit()
+
+    async def toggle_bot_paused(self) -> bool:
+        current = await self.is_bot_paused()
+        new_state = not current
+        await self.set_bot_paused(new_state)
+        return new_state
+
     async def get_bot_setting(self, key: str) -> str | None:
         normalized_key = str(key or '').strip()
         if not normalized_key:
