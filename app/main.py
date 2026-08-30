@@ -97,6 +97,7 @@ async def run() -> None:
         backup_service=backup_service,
         admin_ids=effective_admin_ids,
         group_welcome_photo_path=settings.group_welcome_photo_path,
+        cookie_tutorial_photo_path=settings.cookie_tutorial_photo_path,
         youtube_max_duration_minutes=settings.youtube_max_duration_minutes,
         daily_user_success_limit=settings.daily_user_success_limit,
         daily_admin_success_limit=settings.daily_admin_success_limit,

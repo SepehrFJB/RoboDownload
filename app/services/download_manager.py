@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import contextlib
@@ -165,8 +165,13 @@ class DownloadManager:
                         active_status_message_id,
                         self._build_initial_status_text(request),
                     )
+                user_cookie = await self._db.get_user_platform_cookie(
+                    request.user_id,
+                    request.platform.value,
+                )
                 result = await self._downloader.download(
                     request,
+                    user_cookie=user_cookie,
                     timeout_seconds=self._download_timeout_seconds,
                 )
 

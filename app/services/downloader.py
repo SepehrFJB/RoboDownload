@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import secrets
 import re
 import subprocess
 import sys
@@ -92,10 +93,16 @@ class DownloaderService:
         self._probe_executor.shutdown(wait=False, cancel_futures=True)
         self._download_executor.shutdown(wait=False, cancel_futures=True)
 
-    async def probe(self, url: str) -> MediaInfo:
+    async def probe(self, url: str, user_cookie: str | None = None) -> MediaInfo:
         platform = detect_platform(url)
         loop = asyncio.get_running_loop()
-        info = await loop.run_in_executor(self._probe_executor, self._extract_info, url, platform)
+        info = await loop.run_in_executor(
+            self._probe_executor,
+            self._extract_info,
+            url,
+            platform,
+            user_cookie,
+        )
         title = self._extract_title(info, fallback='Untitled')
         duration_raw = info.get('duration')
         duration = int(duration_raw) if isinstance(duration_raw, (int, float)) else None
@@ -128,6 +135,7 @@ class DownloaderService:
     async def download(
         self,
         request: DownloadRequest,
+        user_cookie: str | None = None,
         progress_queue: asyncio.Queue[dict[str, Any]] | None = None,
         timeout_seconds: int = 0,
     ) -> DownloadResult:
@@ -140,6 +148,7 @@ class DownloaderService:
                 request=request,
                 job_dir=job_dir,
                 source=request.url,
+                user_cookie=user_cookie,
                 progress_queue=progress_queue,
                 deadline=deadline,
             )
@@ -148,6 +157,7 @@ class DownloaderService:
             request=request,
             job_dir=job_dir,
             source=request.url,
+            user_cookie=user_cookie,
             progress_queue=progress_queue,
             deadline=deadline,
         )
@@ -157,6 +167,7 @@ class DownloaderService:
         request: DownloadRequest,
         job_dir: Path,
         source: str,
+        user_cookie: str | None,
         progress_queue: asyncio.Queue[dict[str, Any]] | None,
         deadline: float | None,
     ) -> DownloadResult:
@@ -184,7 +195,10 @@ class DownloaderService:
 
             loop.call_soon_threadsafe(progress_queue.put_nowait, event)
 
-        # Pass 1: keep existing yt-dlp behavior for Instagram videos.
+        user_cookie_file = self._create_user_cookie_file(user_cookie, f'dl_ig_{request.request_id}')
+        bot_cookie_file = self._cookie_file_for_platform(request.platform)
+
+        # Pass 1: yt-dlp video pass with 3-tier cookie hierarchy (User -> Bot -> No Cookie)
         ytdlp_info: dict[str, Any] | None = None
         ytdlp_error: Exception | None = None
         self._raise_if_deadline_exceeded(deadline)
@@ -192,10 +206,12 @@ class DownloaderService:
         try:
             ytdlp_info = await loop.run_in_executor(
                 self._download_executor,
-                self._download_with_cookie_fallback,
+                self._download_with_cookie_hierarchy,
                 source,
                 request.platform,
                 opts,
+                user_cookie_file,
+                bot_cookie_file,
             )
         except DownloadTimeoutError:
             raise
@@ -205,17 +221,19 @@ class DownloaderService:
             ytdlp_error = exc
             logger.info('Instagram yt-dlp video pass failed: %s', exc)
 
-        # Pass 2: add Instagram photos via gallery-dl.
+        # Pass 2: gallery-dl photo pass with 3-tier cookie hierarchy (User -> Bot -> No Cookie)
         gallery_error: Exception | None = None
         self._raise_if_deadline_exceeded(deadline)
         try:
             await loop.run_in_executor(
                 self._download_executor,
-                self._download_instagram_photos_with_gallery_fallback,
+                self._download_instagram_photos_with_gallery_hierarchy,
                 source,
                 request.platform,
                 job_dir,
                 deadline,
+                user_cookie_file,
+                bot_cookie_file,
             )
         except DownloadTimeoutError:
             raise
@@ -224,6 +242,8 @@ class DownloaderService:
                 raise DownloadTimeoutError('Download timed out') from exc
             gallery_error = exc
             logger.info('Instagram gallery-dl photo pass failed: %s', exc)
+        finally:
+            self._cleanup_user_cookie_file(user_cookie_file)
 
         files = self._collect_files(job_dir)
         if not files:
@@ -273,6 +293,7 @@ class DownloaderService:
         request: DownloadRequest,
         job_dir: Path,
         source: str,
+        user_cookie: str | None,
         progress_queue: asyncio.Queue[dict[str, Any]] | None,
         deadline: float | None,
     ) -> DownloadResult:
@@ -303,13 +324,18 @@ class DownloaderService:
         opts = self._build_download_opts(request, job_dir, progress_hook)
         self._raise_if_deadline_exceeded(deadline)
 
+        user_cookie_file = self._create_user_cookie_file(user_cookie, f'dl_{request.request_id}')
+        bot_cookie_file = self._cookie_file_for_platform(request.platform)
+
         try:
             info = await loop.run_in_executor(
                 self._download_executor,
-                self._download_with_cookie_fallback,
+                self._download_with_cookie_hierarchy,
                 source,
                 request.platform,
                 opts,
+                user_cookie_file,
+                bot_cookie_file,
             )
         except DownloadTimeoutError:
             raise
@@ -323,6 +349,8 @@ class DownloaderService:
         except Exception as exc:
             logger.exception('unexpected download error: %s', exc)
             raise DownloaderError('Unexpected error while downloading media.') from exc
+        finally:
+            self._cleanup_user_cookie_file(user_cookie_file)
 
         files = self._collect_files(job_dir)
         if not files:
@@ -350,7 +378,28 @@ class DownloaderService:
             thumbnail_url=str(info.get('thumbnail') or '').strip() or None,
         )
 
-    def _extract_info(self, url: str, platform: Platform) -> dict[str, Any]:
+    def _create_user_cookie_file(self, user_cookie: str | None, tag: str) -> Path | None:
+        payload = str(user_cookie or '').strip()
+        if not payload:
+            return None
+        users_dir = self._platform_cookie_dir / 'users'
+        users_dir.mkdir(parents=True, exist_ok=True)
+        cookie_path = users_dir / f'{tag}.txt'
+        cookie_path.write_text(payload, encoding='utf-8')
+        return cookie_path
+
+    @staticmethod
+    def _cleanup_user_cookie_file(path: Path | None) -> None:
+        if path is not None and path.exists():
+            with contextlib.suppress(OSError):
+                path.unlink()
+
+    def _extract_info(
+        self,
+        url: str,
+        platform: Platform,
+        user_cookie: str | None = None,
+    ) -> dict[str, Any]:
         opts: dict[str, Any] = {
             'quiet': True,
             'skip_download': True,
@@ -360,34 +409,90 @@ class DownloaderService:
             'socket_timeout': 30,
             'logger': self._ytdlp_logger,
         }
-        cookiefile = self._cookie_file_for_platform(platform)
-        if cookiefile is not None:
-            opts['cookiefile'] = str(cookiefile)
         self._apply_youtube_ejs_options(opts, platform)
+
+        user_cookie_file = self._create_user_cookie_file(user_cookie, f'probe_{secrets.token_hex(4)}')
+        bot_cookie_file = self._cookie_file_for_platform(platform)
+
         try:
-            info = self._extract_info_with_cookie_fallback(url, platform, opts)
-        except DownloadError as exc:
+            info = self._extract_info_with_cookie_hierarchy(
+                url=url,
+                platform=platform,
+                options=opts,
+                user_cookie_file=user_cookie_file,
+                bot_cookie_file=bot_cookie_file,
+            )
+        except (DownloadError, DownloaderError) as exc:
             if platform == Platform.INSTAGRAM and self._is_instagram_no_video_error(exc):
-                if self._probe_instagram_with_gallery_fallback(url, platform):
+                if self._probe_instagram_with_gallery_hierarchy(
+                    url=url,
+                    platform=platform,
+                    user_cookie_file=user_cookie_file,
+                    bot_cookie_file=bot_cookie_file,
+                ):
                     return self._build_instagram_probe_fallback(url)
             raise DownloaderError(str(exc)) from exc
-        except DownloaderError as exc:
-            if platform == Platform.INSTAGRAM and self._is_instagram_no_video_error(exc):
-                if self._probe_instagram_with_gallery_fallback(url, platform):
-                    return self._build_instagram_probe_fallback(url)
-            raise
+        finally:
+            self._cleanup_user_cookie_file(user_cookie_file)
 
         if not isinstance(info, dict):
             raise DownloaderError('Could not extract metadata from URL.')
         return info
 
-    def _probe_instagram_with_gallery_fallback(self, url: str, platform: Platform) -> bool:
-        cookiefile = self._cookie_file_for_platform(platform)
-        if cookiefile is not None:
-            if self._probe_instagram_with_gallery(url=url, cookiefile=cookiefile):
+    def _extract_info_with_cookie_hierarchy(
+        self,
+        url: str,
+        platform: Platform,
+        options: dict[str, Any],
+        user_cookie_file: Path | None,
+        bot_cookie_file: Path | None,
+    ) -> dict[str, Any]:
+        candidates: list[tuple[str, Path | None]] = []
+        if user_cookie_file is not None and user_cookie_file.exists():
+            candidates.append(('user cookie', user_cookie_file))
+        if bot_cookie_file is not None and bot_cookie_file.exists():
+            candidates.append(('bot cookie', bot_cookie_file))
+        candidates.append(('no cookie', None))
+
+        last_exc: Exception | None = None
+        base_opts = dict(options)
+
+        for tag, cookie_path in candidates:
+            run_opts = dict(base_opts)
+            if cookie_path is not None:
+                run_opts['cookiefile'] = str(cookie_path)
+            else:
+                run_opts.pop('cookiefile', None)
+
+            try:
+                return self._extract_info_once(url, platform, run_opts)
+            except (DownloadError, DownloaderError) as exc:
+                last_exc = exc
+                log = logger.debug if platform == Platform.INSTAGRAM else logger.info
+                log('Extract metadata failed with %s for %s (falling back): %s', tag, platform.value, exc)
+
+        if last_exc is not None:
+            raise last_exc
+        raise DownloaderError('Could not extract metadata from URL.')
+
+    def _probe_instagram_with_gallery_hierarchy(
+        self,
+        url: str,
+        platform: Platform,
+        user_cookie_file: Path | None,
+        bot_cookie_file: Path | None,
+    ) -> bool:
+        candidates: list[Path | None] = []
+        if user_cookie_file is not None and user_cookie_file.exists():
+            candidates.append(user_cookie_file)
+        if bot_cookie_file is not None and bot_cookie_file.exists():
+            candidates.append(bot_cookie_file)
+        candidates.append(None)
+
+        for cookie_path in candidates:
+            if self._probe_instagram_with_gallery(url=url, cookiefile=cookie_path):
                 return True
-            logger.debug('Instagram gallery-dl probe with cookie failed, retrying without cookie')
-        return self._probe_instagram_with_gallery(url=url, cookiefile=None)
+        return False
 
     @staticmethod
     def _probe_instagram_with_gallery(url: str, cookiefile: Path | None) -> bool:
@@ -433,52 +538,40 @@ class DownloaderService:
         message = str(exc or '').lower()
         return 'instagram' in message and 'no video' in message
 
-    def _extract_info_with_cookie_fallback(
-        self,
-        url: str,
-        platform: Platform,
-        options: dict[str, Any],
-    ) -> dict[str, Any]:
-        has_cookie = bool(str(options.get('cookiefile') or '').strip())
-        try:
-            return self._extract_info_once(url, platform, options)
-        except (DownloadError, DownloaderError):
-            if not has_cookie:
-                raise
-            log = logger.debug if platform == Platform.INSTAGRAM else logger.info
-            log('Extractor failed with cookie for %s, retrying without cookie', platform.value)
-            options_no_cookie = dict(options)
-            options_no_cookie.pop('cookiefile', None)
-            return self._extract_info_once(url, platform, options_no_cookie)
-
-    def _download_instagram_photos_with_gallery_fallback(
+    def _download_instagram_photos_with_gallery_hierarchy(
         self,
         url: str,
         platform: Platform,
         job_dir: Path,
         deadline: float | None,
+        user_cookie_file: Path | None,
+        bot_cookie_file: Path | None,
     ) -> None:
-        cookiefile = self._cookie_file_for_platform(platform)
-        if cookiefile is not None:
+        candidates: list[tuple[str, Path | None]] = []
+        if user_cookie_file is not None and user_cookie_file.exists():
+            candidates.append(('user cookie', user_cookie_file))
+        if bot_cookie_file is not None and bot_cookie_file.exists():
+            candidates.append(('bot cookie', bot_cookie_file))
+        candidates.append(('no cookie', None))
+
+        last_error: Exception | None = None
+        for tag, cookie_path in candidates:
             try:
                 self._download_instagram_photos_with_gallery(
                     url=url,
                     job_dir=job_dir,
-                    cookiefile=cookiefile,
+                    cookiefile=cookie_path,
                     deadline=deadline,
                 )
                 return
             except DownloadTimeoutError:
                 raise
             except DownloaderError as exc:
-                logger.info('gallery-dl failed with cookie for %s, retrying without cookie: %s', platform.value, exc)
+                last_error = exc
+                logger.info('gallery-dl photo pass failed with %s for %s (falling back): %s', tag, platform.value, exc)
 
-        self._download_instagram_photos_with_gallery(
-            url=url,
-            job_dir=job_dir,
-            cookiefile=None,
-            deadline=deadline,
-        )
+        if last_error is not None:
+            raise last_error
 
     def _download_instagram_photos_with_gallery(
         self,
@@ -560,27 +653,45 @@ class DownloaderService:
             return self._extract_twitter_info_with_fallback(url, options)
         return self._extract_info_with_options(url, options)
 
-    def _download_with_cookie_fallback(
+    def _download_with_cookie_hierarchy(
         self,
         url: str,
         platform: Platform,
         options: dict[str, Any],
+        user_cookie_file: Path | None,
+        bot_cookie_file: Path | None,
     ) -> dict[str, Any]:
-        has_cookie = bool(str(options.get('cookiefile') or '').strip())
-        try:
-            return self._download_once(url, platform, options)
-        except DownloadTimeoutError:
-            raise
-        except (DownloadError, DownloaderError) as exc:
-            if self._is_timeout_error(exc):
-                raise DownloadTimeoutError('Download timed out') from exc
-            if not has_cookie:
+        candidates: list[tuple[str, Path | None]] = []
+        if user_cookie_file is not None and user_cookie_file.exists():
+            candidates.append(('user cookie', user_cookie_file))
+        if bot_cookie_file is not None and bot_cookie_file.exists():
+            candidates.append(('bot cookie', bot_cookie_file))
+        candidates.append(('no cookie', None))
+
+        last_error: Exception | None = None
+        base_opts = dict(options)
+
+        for tag, cookie_path in candidates:
+            run_opts = dict(base_opts)
+            if cookie_path is not None:
+                run_opts['cookiefile'] = str(cookie_path)
+            else:
+                run_opts.pop('cookiefile', None)
+
+            try:
+                return self._download_once(url, platform, run_opts)
+            except DownloadTimeoutError:
                 raise
-            log = logger.debug if platform == Platform.INSTAGRAM else logger.info
-            log('Download failed with cookie for %s, retrying without cookie', platform.value)
-            options_no_cookie = dict(options)
-            options_no_cookie.pop('cookiefile', None)
-            return self._download_once(url, platform, options_no_cookie)
+            except (DownloadError, DownloaderError) as exc:
+                if self._is_timeout_error(exc):
+                    raise DownloadTimeoutError('Download timed out') from exc
+                last_error = exc
+                log = logger.debug if platform == Platform.INSTAGRAM else logger.info
+                log('Download pass failed with %s for %s (falling back): %s', tag, platform.value, exc)
+
+        if last_error is not None:
+            raise last_error
+        raise DownloaderError('Download failed.')
 
     def _download_once(
         self,

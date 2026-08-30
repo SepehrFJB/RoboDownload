@@ -135,6 +135,19 @@ class Database:
             )
             await db.execute(
                 '''
+                CREATE TABLE IF NOT EXISTS user_platform_cookies (
+                    user_id INTEGER NOT NULL,
+                    platform TEXT NOT NULL CHECK(platform IN ('youtube', 'instagram', 'tiktok', 'twitter', 'soundcloud')),
+                    cookie_text TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (user_id, platform),
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                );
+            
+                '''
+            )
+            await db.execute(
+                '''
                 CREATE TABLE IF NOT EXISTS platform_cookies (
                     platform TEXT PRIMARY KEY CHECK(platform IN ('youtube', 'instagram', 'tiktok', 'twitter', 'soundcloud')),
                     cookie_text TEXT NOT NULL,
@@ -877,6 +890,82 @@ class Database:
             )
             await db.commit()
             return int(cursor.rowcount or 0)
+
+    async def upsert_user_platform_cookie(self, user_id: int, platform: str, cookie_text: str) -> None:
+        normalized = self._normalize_cookie_platform(platform)
+        if normalized is None:
+            raise ValueError(f'Unsupported platform for cookie: {platform}')
+        payload = str(cookie_text or '').strip()
+        if not payload:
+            raise ValueError('Cookie text cannot be empty')
+        async with self._connect() as db:
+            await db.execute(
+                '''
+                INSERT INTO user_platform_cookies(user_id, platform, cookie_text, updated_at)
+                VALUES(?, ?, ?, datetime('now'))
+                ON CONFLICT(user_id, platform)
+                DO UPDATE SET
+                    cookie_text = excluded.cookie_text,
+                    updated_at = excluded.updated_at
+                ''',
+                (int(user_id), normalized, payload),
+            )
+            await db.commit()
+
+    async def remove_user_platform_cookie(self, user_id: int, platform: str) -> bool:
+        normalized = self._normalize_cookie_platform(platform)
+        if normalized is None:
+            return False
+        async with self._connect() as db:
+            cursor = await db.execute(
+                'DELETE FROM user_platform_cookies WHERE user_id = ? AND platform = ?',
+                (int(user_id), normalized),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def list_user_platform_cookies(self, user_id: int) -> list[dict[str, str]]:
+        async with self._connect() as db:
+            cursor = await db.execute(
+                '''
+                SELECT platform, cookie_text, updated_at
+                FROM user_platform_cookies
+                WHERE user_id = ?
+                ORDER BY
+                    CASE platform
+                        WHEN 'youtube' THEN 0
+                        WHEN 'instagram' THEN 1
+                        WHEN 'tiktok' THEN 2
+                        WHEN 'twitter' THEN 3
+                        WHEN 'soundcloud' THEN 4
+                        ELSE 9
+                    END ASC
+                ''',
+                (int(user_id),),
+            )
+            rows = await cursor.fetchall()
+        return [
+            {
+                'platform': str(row[0]),
+                'cookie_text': str(row[1]),
+                'updated_at': str(row[2]),
+            }
+            for row in rows
+        ]
+
+    async def get_user_platform_cookie(self, user_id: int, platform: str) -> str | None:
+        normalized = self._normalize_cookie_platform(platform)
+        if normalized is None:
+            return None
+        async with self._connect() as db:
+            cursor = await db.execute(
+                'SELECT cookie_text FROM user_platform_cookies WHERE user_id = ? AND platform = ?',
+                (int(user_id), normalized),
+            )
+            row = await cursor.fetchone()
+        if not row or row[0] is None:
+            return None
+        return str(row[0])
 
     async def list_platform_cookies(self) -> list[dict[str, str]]:
         async with self._connect() as db:

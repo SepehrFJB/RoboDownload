@@ -21,6 +21,7 @@ class AppContext:
     backup_service: BackupService
     admin_ids: set[int]
     group_welcome_photo_path: Path | None
+    cookie_tutorial_photo_path: Path | None
     youtube_max_duration_minutes: int
     daily_user_success_limit: int
     daily_admin_success_limit: int

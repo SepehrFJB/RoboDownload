@@ -33,6 +33,7 @@ class Settings:
     log_dir: Path
     log_file_path: Path
     group_welcome_photo_path: Path | None
+    cookie_tutorial_photo_path: Path | None
     max_concurrent_downloads: int
     max_file_size_mb: int
     youtube_max_duration_minutes: int
@@ -82,7 +83,7 @@ def _parse_csv_values(raw: str) -> tuple[str, ...]:
 
 
 def load_settings() -> Settings:
-    load_dotenv()
+    load_dotenv(dotenv_path=BASE_DIR / '.env')
 
     token = os.getenv('BOT_TOKEN', '').strip()
     if not token:
@@ -95,7 +96,18 @@ def load_settings() -> Settings:
     log_file_path = STATIC_LOG_FILE_PATH
 
     group_welcome_photo_raw = os.getenv('GROUP_WELCOME_PHOTO_PATH', '').strip()
-    group_welcome_photo_path = (BASE_DIR / group_welcome_photo_raw).resolve() if group_welcome_photo_raw else None
+    group_welcome_photo_path = (
+        Path(group_welcome_photo_raw).resolve()
+        if Path(group_welcome_photo_raw).is_absolute()
+        else (BASE_DIR / group_welcome_photo_raw).resolve()
+    ) if group_welcome_photo_raw else None
+
+    cookie_tutorial_photo_raw = os.getenv('COOKIE_TUTORIAL_PHOTO_PATH', '').strip()
+    cookie_tutorial_photo_path = (
+        Path(cookie_tutorial_photo_raw).resolve()
+        if Path(cookie_tutorial_photo_raw).is_absolute()
+        else (BASE_DIR / cookie_tutorial_photo_raw).resolve()
+    ) if cookie_tutorial_photo_raw else None
 
     return Settings(
         bot_token=token,
@@ -106,6 +118,7 @@ def load_settings() -> Settings:
         log_dir=log_dir,
         log_file_path=log_file_path,
         group_welcome_photo_path=group_welcome_photo_path,
+        cookie_tutorial_photo_path=cookie_tutorial_photo_path,
         max_concurrent_downloads=int(os.getenv('MAX_CONCURRENT_DOWNLOADS', '3')),
         max_file_size_mb=int(os.getenv('MAX_FILE_SIZE_MB', '49')),
         youtube_max_duration_minutes=int(os.getenv('YOUTUBE_MAX_DURATION_MINUTES', '30')),

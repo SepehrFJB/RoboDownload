@@ -4,14 +4,16 @@ import asyncio
 import contextlib
 import io
 import logging
+import os
 import re
 import time
+from pathlib import Path
 from urllib.parse import urlparse
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, Filter
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import CallbackQuery, ChatMemberUpdated, FSInputFile, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, ChatMemberUpdated, FSInputFile, LinkPreviewOptions, Message, ReplyKeyboardRemove
 
 from app.context import AppContext
 from app.i18n import tr
@@ -22,6 +24,9 @@ from app.keyboards import (
     cookie_platform_button_variants,
     cookie_platform_label,
     build_admin_panel_keyboard,
+    build_user_main_keyboard,
+    build_user_cookie_keyboard,
+    all_user_cookie_button_variants,
     build_admin_cookie_keyboard,
     build_admin_managers_keyboard,
     build_admin_blocks_keyboard,
@@ -74,6 +79,10 @@ ADMIN_STATE_WAIT_COOKIE_SET_PLATFORM = 'wait_cookie_set_platform'
 ADMIN_STATE_WAIT_COOKIE_SET_CONTENT = 'wait_cookie_set_content'
 ADMIN_STATE_WAIT_COOKIE_REMOVE_PLATFORM = 'wait_cookie_remove_platform'
 
+USER_STATE_WAIT_COOKIE_SET_PLATFORM = 'user_wait_cookie_set_platform'
+USER_STATE_WAIT_COOKIE_SET_CONTENT = 'user_wait_cookie_set_content'
+USER_STATE_WAIT_COOKIE_REMOVE_PLATFORM = 'user_wait_cookie_remove_platform'
+
 COOKIE_PLATFORM_KEYS = ['youtube', 'instagram', 'tiktok', 'twitter', 'soundcloud']
 COOKIE_FILE_MAX_BYTES = 1_500_000
 GROUP_TRACK_REFRESH_SECONDS = 12 * 60 * 60
@@ -85,10 +94,13 @@ def build_router(ctx: AppContext) -> Router:
     admin_states: dict[int, str] = {}
     broadcast_targets: dict[int, str] = {}
     pending_cookie_platforms: dict[int, str] = {}
+    user_cookie_states: dict[int, str] = {}
+    user_pending_cookie_platforms: dict[int, str] = {}
     group_admin_block_keys = (
         'inspect_user',
         'broadcast',
         'cookie',
+        'user_cookie',
         'cookie_list',
         'cookie_set',
         'cookie_remove',
@@ -162,7 +174,7 @@ def build_router(ctx: AppContext) -> Router:
         reply_markup = (
             build_admin_panel_keyboard(lang)
             if user_id in ctx.admin_ids and _is_private_chat(message.chat.type)
-            else None
+            else (build_user_main_keyboard(lang) if _is_private_chat(message.chat.type) else None)
         )
         await message.answer(
             start_text,
@@ -598,6 +610,40 @@ def build_router(ctx: AppContext) -> Router:
                 reply_markup=build_admin_panel_keyboard(lang),
             )
 
+    
+    @router.message(F.text.in_(all_user_cookie_button_variants()))
+    async def user_cookie_menu_button_handler(message: Message) -> None:
+        if not message.from_user or not _is_private_chat(message.chat.type):
+            return
+        user_id = message.from_user.id
+        lang = await ctx.db.get_user_language(user_id)
+        if await ctx.db.is_bot_paused() and user_id not in ctx.admin_ids:
+            await message.answer(_bot_paused_maintenance_text(lang))
+            return
+
+        admin_states.pop(user_id, None)
+        user_cookie_states.pop(user_id, None)
+        user_pending_cookie_platforms.pop(user_id, None)
+
+        cookies = await ctx.db.list_user_platform_cookies(user_id)
+        text = _user_cookie_menu_tutorial_text(lang, cookies)
+        photo_path = _get_cookie_tutorial_photo_path(ctx)
+        reply_markup = build_user_cookie_keyboard(lang)
+
+        if photo_path is not None and photo_path.exists():
+            try:
+                await message.answer_photo(
+                    photo=FSInputFile(photo_path),
+                    caption=text,
+                    parse_mode='HTML',
+                    reply_markup=reply_markup,
+                )
+                return
+            except Exception:
+                logger.warning('Failed to send tutorial photo, falling back to text', exc_info=True)
+
+        await message.answer(text, parse_mode='HTML', link_preview_options=LinkPreviewOptions(is_disabled=True), reply_markup=reply_markup)
+
     @router.message(F.text.in_(all_admin_button_variants('cookie')))
     async def admin_cookie_button_handler(message: Message) -> None:
         if not message.from_user:
@@ -616,63 +662,97 @@ def build_router(ctx: AppContext) -> Router:
         )
 
     @router.message(F.text.in_(all_admin_button_variants('cookie_list')))
-    async def admin_cookie_list_button_handler(message: Message) -> None:
+    async def cookie_list_button_handler(message: Message) -> None:
         if not message.from_user:
             return
         user_id = message.from_user.id
         lang = await ctx.db.get_user_language(user_id)
-        if user_id not in ctx.admin_ids:
-            await message.answer(tr(lang, 'admins_only'), reply_markup=ReplyKeyboardRemove())
-            return
 
-        admin_states.pop(user_id, None)
-        pending_cookie_platforms.pop(user_id, None)
-        cookies = await ctx.db.list_platform_cookies()
-        await message.answer(
-            _admin_cookie_list_text(lang, cookies),
-            reply_markup=build_admin_cookie_keyboard(lang),
-        )
-
-    @router.message(F.text.in_(all_admin_button_variants('cookie_set')))
-    async def admin_cookie_set_button_handler(message: Message) -> None:
-        if not message.from_user:
-            return
-        user_id = message.from_user.id
-        lang = await ctx.db.get_user_language(user_id)
-        if user_id not in ctx.admin_ids:
-            await message.answer(tr(lang, 'admins_only'), reply_markup=ReplyKeyboardRemove())
-            return
-
-        admin_states[user_id] = ADMIN_STATE_WAIT_COOKIE_SET_PLATFORM
-        pending_cookie_platforms.pop(user_id, None)
-        await message.answer(
-            _admin_cookie_pick_platform_text(lang, action='set'),
-            reply_markup=build_cookie_platform_keyboard(lang, COOKIE_PLATFORM_KEYS),
-        )
-
-    @router.message(F.text.in_(all_admin_button_variants('cookie_remove')))
-    async def admin_cookie_remove_button_handler(message: Message) -> None:
-        if not message.from_user:
-            return
-        user_id = message.from_user.id
-        lang = await ctx.db.get_user_language(user_id)
-        if user_id not in ctx.admin_ids:
-            await message.answer(tr(lang, 'admins_only'), reply_markup=ReplyKeyboardRemove())
-            return
-
-        cookies = await ctx.db.list_platform_cookies()
-        platforms = [str(item.get('platform') or '').strip().lower() for item in cookies if item.get('platform')]
-        if not platforms:
+        # Check if admin is currently managing global bot cookies
+        if user_id in ctx.admin_ids and admin_states.get(user_id, '').startswith('wait_cookie'):
+            admin_states.pop(user_id, None)
+            pending_cookie_platforms.pop(user_id, None)
+            cookies = await ctx.db.list_platform_cookies()
             await message.answer(
-                _admin_cookie_remove_empty_text(lang),
+                _admin_cookie_list_text(lang, cookies),
                 reply_markup=build_admin_cookie_keyboard(lang),
             )
             return
 
-        admin_states[user_id] = ADMIN_STATE_WAIT_COOKIE_REMOVE_PLATFORM
-        pending_cookie_platforms.pop(user_id, None)
+        # Otherwise show user's personal cookies list
+        user_cookie_states.pop(user_id, None)
+        user_pending_cookie_platforms.pop(user_id, None)
+        cookies = await ctx.db.list_user_platform_cookies(user_id)
         await message.answer(
-            _admin_cookie_pick_platform_text(lang, action='remove'),
+            _user_cookie_list_text(lang, cookies),
+            reply_markup=build_user_cookie_keyboard(lang),
+        )
+
+    @router.message(F.text.in_(all_admin_button_variants('cookie_set')))
+    async def cookie_set_button_handler(message: Message) -> None:
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
+        lang = await ctx.db.get_user_language(user_id)
+
+        # Check if admin is currently managing global bot cookies
+        if user_id in ctx.admin_ids and admin_states.get(user_id, '').startswith('wait_cookie'):
+            admin_states[user_id] = ADMIN_STATE_WAIT_COOKIE_SET_PLATFORM
+            pending_cookie_platforms.pop(user_id, None)
+            await message.answer(
+                _admin_cookie_pick_platform_text(lang, action='set'),
+                reply_markup=build_cookie_platform_keyboard(lang, COOKIE_PLATFORM_KEYS),
+            )
+            return
+
+        # User personal cookie set
+        user_cookie_states[user_id] = USER_STATE_WAIT_COOKIE_SET_PLATFORM
+        user_pending_cookie_platforms.pop(user_id, None)
+        await message.answer(
+            _user_cookie_pick_platform_text(lang, action='set'),
+            reply_markup=build_cookie_platform_keyboard(lang, COOKIE_PLATFORM_KEYS),
+        )
+
+    @router.message(F.text.in_(all_admin_button_variants('cookie_remove')))
+    async def cookie_remove_button_handler(message: Message) -> None:
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
+        lang = await ctx.db.get_user_language(user_id)
+
+        # Check if admin is currently managing global bot cookies
+        if user_id in ctx.admin_ids and admin_states.get(user_id, '').startswith('wait_cookie'):
+            cookies = await ctx.db.list_platform_cookies()
+            platforms = [str(item.get('platform') or '').strip().lower() for item in cookies if item.get('platform')]
+            if not platforms:
+                await message.answer(
+                    _admin_cookie_remove_empty_text(lang),
+                    reply_markup=build_admin_cookie_keyboard(lang),
+                )
+                return
+
+            admin_states[user_id] = ADMIN_STATE_WAIT_COOKIE_REMOVE_PLATFORM
+            pending_cookie_platforms.pop(user_id, None)
+            await message.answer(
+                _admin_cookie_pick_platform_text(lang, action='remove'),
+                reply_markup=build_cookie_platform_keyboard(lang, platforms),
+            )
+            return
+
+        # User personal cookie remove
+        cookies = await ctx.db.list_user_platform_cookies(user_id)
+        platforms = [str(item.get('platform') or '').strip().lower() for item in cookies if item.get('platform')]
+        if not platforms:
+            await message.answer(
+                _user_cookie_remove_empty_text(lang),
+                reply_markup=build_user_cookie_keyboard(lang),
+            )
+            return
+
+        user_cookie_states[user_id] = USER_STATE_WAIT_COOKIE_REMOVE_PLATFORM
+        user_pending_cookie_platforms.pop(user_id, None)
+        await message.answer(
+            _user_cookie_pick_platform_text(lang, action='remove'),
             reply_markup=build_cookie_platform_keyboard(lang, platforms),
         )
 
@@ -699,15 +779,41 @@ def build_router(ctx: AppContext) -> Router:
         )
 
     @router.message(F.text.in_(all_admin_button_variants('back')))
-    async def admin_back_button_handler(message: Message) -> None:
+    async def back_button_handler(message: Message) -> None:
         if not message.from_user:
             return
         user_id = message.from_user.id
         lang = await ctx.db.get_user_language(user_id)
+
+        # Handle user cookie sub-states
+        user_prev_state = user_cookie_states.pop(user_id, None)
+        if user_prev_state == USER_STATE_WAIT_COOKIE_SET_CONTENT:
+            user_cookie_states[user_id] = USER_STATE_WAIT_COOKIE_SET_PLATFORM
+            await message.answer(
+                _user_cookie_pick_platform_text(lang, action='set'),
+                reply_markup=build_cookie_platform_keyboard(lang, COOKIE_PLATFORM_KEYS),
+            )
+            return
+        if user_prev_state in {USER_STATE_WAIT_COOKIE_SET_PLATFORM, USER_STATE_WAIT_COOKIE_REMOVE_PLATFORM}:
+            user_pending_cookie_platforms.pop(user_id, None)
+            cookies = await ctx.db.list_user_platform_cookies(user_id)
+            await message.answer(
+                _user_cookie_menu_tutorial_text(lang, cookies),
+                parse_mode='HTML',
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+                reply_markup=build_user_cookie_keyboard(lang),
+            )
+            return
+
         previous_state = admin_states.pop(user_id, None)
         pending_cookie_platforms.pop(user_id, None)
+
         if user_id not in ctx.admin_ids:
-            await message.answer(tr(lang, 'admins_only'), reply_markup=ReplyKeyboardRemove())
+            user_pending_cookie_platforms.pop(user_id, None)
+            await message.answer(
+                _start_welcome_text(lang),
+                reply_markup=build_user_main_keyboard(lang),
+            )
             return
         if previous_state in {
             ADMIN_STATE_WAIT_BROADCAST_NORMAL,
@@ -817,6 +923,104 @@ def build_router(ctx: AppContext) -> Router:
                 _admin_cancel_text(lang),
                 reply_markup=build_admin_panel_keyboard(lang),
             )
+
+    
+    @router.message(_UserStateFilter(user_cookie_states))
+    async def user_cookie_pending_action_handler(message: Message) -> None:
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
+        lang = await ctx.db.get_user_language(user_id)
+        state = user_cookie_states.get(user_id)
+        if not state:
+            return
+
+        if state == USER_STATE_WAIT_COOKIE_SET_PLATFORM:
+            selected_platform = _resolve_cookie_platform(message.text or '')
+            if selected_platform is None:
+                await message.answer(
+                    _admin_cookie_invalid_platform_text(lang),
+                    reply_markup=build_cookie_platform_keyboard(lang, COOKIE_PLATFORM_KEYS),
+                )
+                return
+
+            user_pending_cookie_platforms[user_id] = selected_platform
+            user_cookie_states[user_id] = USER_STATE_WAIT_COOKIE_SET_CONTENT
+            await message.answer(
+                _user_cookie_set_payload_prompt_text(lang, selected_platform),
+                reply_markup=build_back_only_keyboard(lang),
+            )
+            return
+
+        if state == USER_STATE_WAIT_COOKIE_SET_CONTENT:
+            selected_platform = user_pending_cookie_platforms.get(user_id)
+            if selected_platform is None:
+                user_cookie_states[user_id] = USER_STATE_WAIT_COOKIE_SET_PLATFORM
+                await message.answer(
+                    _user_cookie_pick_platform_text(lang, action='set'),
+                    reply_markup=build_cookie_platform_keyboard(lang, COOKIE_PLATFORM_KEYS),
+                )
+                return
+
+            cookie_payload = (message.text or '').strip()
+            if message.document is not None:
+                cookie_payload = await _read_cookie_document_text(message, max_bytes=COOKIE_FILE_MAX_BYTES)
+            if not _looks_like_cookie_payload(cookie_payload):
+                await message.answer(
+                    _admin_cookie_payload_invalid_text(lang),
+                    reply_markup=build_back_only_keyboard(lang),
+                )
+                return
+
+            try:
+                await ctx.db.upsert_user_platform_cookie(user_id, selected_platform, cookie_payload)
+            except Exception:
+                logger.exception('Failed to store user cookie for user %s on %s', user_id, selected_platform)
+                await message.answer(
+                    _admin_cookie_store_error_text(lang),
+                    reply_markup=build_back_only_keyboard(lang),
+                )
+                return
+
+            user_cookie_states.pop(user_id, None)
+            user_pending_cookie_platforms.pop(user_id, None)
+            await message.answer(
+                _user_cookie_set_success_text(lang, selected_platform),
+                reply_markup=build_user_cookie_keyboard(lang),
+            )
+            return
+
+        if state == USER_STATE_WAIT_COOKIE_REMOVE_PLATFORM:
+            cookies = await ctx.db.list_user_platform_cookies(user_id)
+            existing_platforms = [
+                str(item.get('platform') or '').strip().lower()
+                for item in cookies
+                if item.get('platform')
+            ]
+            if not existing_platforms:
+                user_cookie_states.pop(user_id, None)
+                await message.answer(
+                    _user_cookie_remove_empty_text(lang),
+                    reply_markup=build_user_cookie_keyboard(lang),
+                )
+                return
+
+            selected_platform = _resolve_cookie_platform(message.text or '')
+            if selected_platform is None or selected_platform not in existing_platforms:
+                await message.answer(
+                    _admin_cookie_invalid_platform_text(lang),
+                    reply_markup=build_cookie_platform_keyboard(lang, existing_platforms),
+                )
+                return
+
+            await ctx.db.remove_user_platform_cookie(user_id, selected_platform)
+            user_cookie_states.pop(user_id, None)
+            user_pending_cookie_platforms.pop(user_id, None)
+            await message.answer(
+                _user_cookie_remove_success_text(lang, selected_platform),
+                reply_markup=build_user_cookie_keyboard(lang),
+            )
+            return
 
     @router.message(_AdminStateFilter(admin_states))
     async def admin_pending_action_handler(message: Message) -> None:
@@ -1434,7 +1638,8 @@ def build_router(ctx: AppContext) -> Router:
             return
 
         try:
-            media = await ctx.downloader.probe(url)
+            user_cookie = await ctx.db.get_user_platform_cookie(user_id, detected_platform.value)
+            media = await ctx.downloader.probe(url, user_cookie=user_cookie)
         except DownloaderError as exc:
             await ctx.limiter.mark_probe_finished(user_id)
             classification = classify_download_error(str(exc))
@@ -2213,6 +2418,16 @@ def _group_welcome_text() -> str:
     )
 
 
+class _UserStateFilter(Filter):
+    def __init__(self, states: dict[int, str]) -> None:
+        self._states = states
+
+    async def __call__(self, message: Message) -> bool:
+        if not message.from_user:
+            return False
+        return message.from_user.id in self._states
+
+
 class _AdminStateFilter(Filter):
     def __init__(self, states: dict[int, str]) -> None:
         self._states = states
@@ -2428,12 +2643,12 @@ def _resolve_cookie_platform(text: str) -> str | None:
 def _admin_cookie_menu_text(lang: str) -> str:
     if lang == 'fa':
         return (
-            '🍪 مدیریت کوکی ربات\n\n'
+            '🍪 مدیریت کوکی ربات (ادمین)\n\n'
             'در این بخش می‌توانید برای هر پلتفرم کوکی جدا ثبت یا حذف کنید.\n'
             'این تنظیمات در دیتابیس ذخیره می‌شود و بعد از ری‌استارت ربات هم می‌ماند.'
         )
     return (
-        '🍪 Bot cookie management\n\n'
+        '🍪 Bot cookie management (Admin)\n\n'
         'Here you can set/remove a separate cookie for each platform.\n'
         'Cookies are saved in database and persist after restart.'
     )
@@ -3368,3 +3583,131 @@ async def _is_user_channel_member(bot, chat_id: int, user_id: int) -> bool:
     if status == 'restricted' and bool(getattr(member, 'is_member', False)):
         return True
     return False
+
+
+def _get_cookie_tutorial_photo_path(ctx: AppContext | None = None) -> Path | None:
+    if ctx is not None and ctx.cookie_tutorial_photo_path is not None:
+        if ctx.cookie_tutorial_photo_path.exists():
+            return ctx.cookie_tutorial_photo_path
+
+    env_path = os.getenv('COOKIE_TUTORIAL_PHOTO_PATH', '').strip()
+    if env_path:
+        p = Path(env_path) if Path(env_path).is_absolute() else (Path(__file__).resolve().parent.parent / env_path)
+        if p.exists():
+            return p
+
+    base_dir = Path(__file__).resolve().parent.parent
+    candidate_paths = [
+        base_dir / 'assets' / 'cookie_tutorial.png',
+        base_dir / 'assets' / 'cookie_tutorial.jpg',
+        base_dir / 'assets' / 'cookie_tutorial.jpeg',
+        base_dir / 'assets' / 'cookie_tutorial.webp',
+        base_dir / 'cookie_tutorial.png',
+        base_dir / 'cookie_tutorial.jpg',
+        base_dir / 'cookie_tutorial.jpeg',
+        base_dir / 'cookie_tutorial.webp',
+    ]
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _user_cookie_menu_tutorial_text(lang: str, cookies: list[dict[str, str]] | None = None) -> str:
+    if lang == 'fa':
+        lines = [
+            '🍪 مدیریت کوکی اختصاصی شما',
+            '',
+            'با ثبت کوکی، ربات به اکانت شخصی شما متصل شده و می‌توانید از پلتفرم‌هایی که نیاز به کوکی دارند استفاده کنید.',
+            '',
+            '📖 راهنمای دریافت و ارسال کوکی:',
+            '۱. افزونه <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc">Get cookies.txt LOCALLY</a> را در مرورگر کروم در کامپیوتر نصب کنید.',
+            '۲. وارد سایت موردنظر (مثلاً Instagram یا YouTube) شده و لاگین کنید.',
+            '۳. روی افزونه کلیک کرده و دکمه آبی‌رنگ Export را بزنید تا فایل .txt کوکی دانلود شود.',
+            '۴. از دکمه «➕ افزودن/ویرایش کوکی» در زیر استفاده کرده، پلتفرم را انتخاب کنید و همان فایل .txt را برای ربات بفرستید.',
+        ]
+        return '\n'.join(lines)
+
+    lines = [
+        '🍪 Your Personal Cookie Management',
+        '',
+        'By registering cookies, the bot connects to your personal account so you can use platforms that require cookies.',
+        '',
+        '📖 How to Get & Send Cookies:',
+        '1. Install <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc">Get cookies.txt LOCALLY</a> extension in Chrome on desktop.',
+        '2. Open the platform site (e.g. Instagram or YouTube) and log in to your account.',
+        '3. Click the extension icon and click the blue "Export" button to download the .txt cookie file.',
+        '4. Click «➕ Add/Update cookie» below, choose the platform, and send the .txt file to the bot.',
+    ]
+    return '\n'.join(lines)
+
+
+def _user_cookie_list_text(lang: str, cookies: list[dict[str, str]]) -> str:
+    cookie_map = {
+        str(item.get('platform') or '').strip().lower(): str(item.get('updated_at') or '-')
+        for item in cookies
+        if item.get('platform')
+    }
+    if lang == 'fa':
+        lines = ['📜 وضعیت کوکی‌های اختصاصی شما', '']
+        for platform in COOKIE_PLATFORM_KEYS:
+            label = cookie_platform_label(platform, lang)
+            updated_at = cookie_map.get(platform)
+            if updated_at:
+                lines.append(f'• {label}: ✅ تنظیم شده ({updated_at})')
+            else:
+                lines.append(f'• {label}: ❌ تنظیم نشده')
+        return '\n'.join(lines)
+
+    lines = ['📜 Your Personal Cookies Status', '']
+    for platform in COOKIE_PLATFORM_KEYS:
+        label = cookie_platform_label(platform, lang)
+        updated_at = cookie_map.get(platform)
+        if updated_at:
+            lines.append(f'• {label}: ✅ Set ({updated_at})')
+        else:
+            lines.append(f'• {label}: ❌ Not set')
+    return '\n'.join(lines)
+
+
+def _user_cookie_pick_platform_text(lang: str, action: str) -> str:
+    if lang == 'fa':
+        if action == 'remove':
+            return '⚠️ پلتفرم موردنظر برای حذف کوکی اختصاصی را انتخاب کنید:'
+        return '⚠️ پلتفرم موردنظر برای ثبت/ویرایش کوکی اختصاصی را انتخاب کنید:'
+    if action == 'remove':
+        return '⚠️ Choose platform to remove your personal cookie:'
+    return '⚠️ Choose platform to set/update your personal cookie:'
+
+
+def _user_cookie_set_payload_prompt_text(lang: str, platform: str) -> str:
+    platform_label = cookie_platform_label(platform, lang)
+    if lang == 'fa':
+        return (
+            f'📝 کوکی اختصاصی پلتفرم {platform_label} را ارسال کنید.\n\n'
+            'می‌توانید متن کوکی (فرمت Netscape یا JSON) یا فایل .txt کوکی را ارسال کنید.'
+        )
+    return (
+        f'📝 Send personal cookie for {platform_label}.\n\n'
+        'You can send raw cookie text (Netscape/JSON format) or a .txt cookie file.'
+    )
+
+
+def _user_cookie_set_success_text(lang: str, platform: str) -> str:
+    platform_label = cookie_platform_label(platform, lang)
+    if lang == 'fa':
+        return f'✅ کوکی اختصاصی شما برای {platform_label} با موفقیت ذخیره شد.\nاز این پس دانلودهای این پلتفرم با کوکی شخصی شما انجام می‌شود.'
+    return f'✅ Your personal cookie for {platform_label} was saved successfully.'
+
+
+def _user_cookie_remove_empty_text(lang: str) -> str:
+    if lang == 'fa':
+        return '⛔️ هنوز هیچ کوکی اختصاصی‌ای ثبت نکرده‌اید.'
+    return '⛔️ You have not registered any personal cookies yet.'
+
+
+def _user_cookie_remove_success_text(lang: str, platform: str) -> str:
+    platform_label = cookie_platform_label(platform, lang)
+    if lang == 'fa':
+        return f'✅ کوکی اختصاصی شما برای {platform_label} با موفقیت حذف شد.'
+    return f'✅ Your personal cookie for {platform_label} was removed.'

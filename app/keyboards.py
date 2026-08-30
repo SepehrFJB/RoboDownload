@@ -33,6 +33,7 @@ ADMIN_BUTTONS: dict[str, dict[str, str]] = {
         'inspect_user': '🔎 بررسی کاربر',
         'broadcast': '✍️ پیام همگانی',
         'cookie': '🍪 کوکی ربات',
+        'user_cookie': '🍪 تنظیم کوکی',
         'cookie_list': '📜 لیست کوکی‌ها',
         'cookie_set': '➕ افزودن/ویرایش کوکی',
         'cookie_remove': '➖ حذف کوکی',
@@ -66,6 +67,7 @@ ADMIN_BUTTONS: dict[str, dict[str, str]] = {
         'inspect_user': '🔎 Check User',
         'broadcast': '✍️ Broadcast',
         'cookie': '🍪 Bot Cookies',
+        'user_cookie': '🍪 Cookie Settings',
         'cookie_list': '📜 Cookie list',
         'cookie_set': '➕ Add/Update cookie',
         'cookie_remove': '➖ Remove cookie',
@@ -266,8 +268,30 @@ def build_admin_panel_keyboard(lang: str) -> ReplyKeyboardMarkup:
     kb.button(text=admin_button_text('admins_menu', lang))
     kb.button(text=admin_button_text('block_target', lang))
     kb.button(text=admin_button_text('database_backup', lang))
-    kb.adjust(3, 3, 2)
+    kb.button(text=admin_button_text('user_cookie', lang))
+    kb.adjust(3, 3, 2, 1)
     return kb.as_markup(resize_keyboard=True, one_time_keyboard=False)
+
+
+def build_user_main_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    kb = ReplyKeyboardBuilder()
+    kb.button(text=admin_button_text('user_cookie', lang))
+    kb.adjust(1)
+    return kb.as_markup(resize_keyboard=True, one_time_keyboard=False)
+
+
+def build_user_cookie_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    kb = ReplyKeyboardBuilder()
+    kb.button(text=admin_button_text('cookie_list', lang))
+    kb.button(text=admin_button_text('cookie_remove', lang))
+    kb.button(text=admin_button_text('cookie_set', lang))
+    kb.button(text=admin_button_text('back', lang))
+    kb.adjust(1, 2, 1)
+    return kb.as_markup(resize_keyboard=True, one_time_keyboard=False)
+
+
+def all_user_cookie_button_variants() -> set[str]:
+    return all_admin_button_variants('user_cookie')
 
 
 def build_force_sub_admin_keyboard(lang: str, force_sub_enabled: bool = True) -> ReplyKeyboardMarkup:
