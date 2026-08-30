@@ -631,16 +631,14 @@ def build_router(ctx: AppContext) -> Router:
         reply_markup = build_user_cookie_keyboard(lang)
 
         if photo_path is not None and photo_path.exists():
-            try:
-                await message.answer_photo(
-                    photo=FSInputFile(photo_path),
-                    caption=text,
-                    parse_mode='HTML',
-                    reply_markup=reply_markup,
-                )
+            sent = await _send_cached_tutorial_photo(
+                message=message,
+                photo_path=photo_path,
+                caption=text,
+                reply_markup=reply_markup,
+            )
+            if sent:
                 return
-            except Exception:
-                logger.warning('Failed to send tutorial photo, falling back to text', exc_info=True)
 
         await message.answer(text, parse_mode='HTML', link_preview_options=LinkPreviewOptions(is_disabled=True), reply_markup=reply_markup)
 
@@ -3611,6 +3609,66 @@ def _get_cookie_tutorial_photo_path(ctx: AppContext | None = None) -> Path | Non
         if candidate.exists():
             return candidate
     return None
+
+
+
+_COOKIE_TUTORIAL_PHOTO_CACHE: dict[str, Any] = {
+    'path': None,
+    'mtime': 0.0,
+    'file_id': None,
+}
+
+
+async def _send_cached_tutorial_photo(
+    message: Message,
+    photo_path: Path,
+    caption: str,
+    reply_markup: Any,
+) -> bool:
+    global _COOKIE_TUTORIAL_PHOTO_CACHE
+    try:
+        current_mtime = photo_path.stat().st_mtime
+    except OSError:
+        return False
+
+    cached_file_id: str | None = None
+    if (
+        _COOKIE_TUTORIAL_PHOTO_CACHE.get('path') == str(photo_path)
+        and _COOKIE_TUTORIAL_PHOTO_CACHE.get('mtime') == current_mtime
+    ):
+        cached_file_id = _COOKIE_TUTORIAL_PHOTO_CACHE.get('file_id')
+
+    if cached_file_id:
+        try:
+            await message.answer_photo(
+                photo=cached_file_id,
+                caption=caption,
+                parse_mode='HTML',
+                reply_markup=reply_markup,
+            )
+            return True
+        except Exception:
+            logger.warning('Failed to send tutorial photo using cached file_id, refreshing cache', exc_info=True)
+            _COOKIE_TUTORIAL_PHOTO_CACHE['file_id'] = None
+
+    try:
+        sent_msg = await message.answer_photo(
+            photo=FSInputFile(str(photo_path), filename=photo_path.name),
+            caption=caption,
+            parse_mode='HTML',
+            reply_markup=reply_markup,
+        )
+        if sent_msg.photo:
+            new_file_id = str(sent_msg.photo[-1].file_id)
+            _COOKIE_TUTORIAL_PHOTO_CACHE = {
+                'path': str(photo_path),
+                'mtime': current_mtime,
+                'file_id': new_file_id,
+            }
+        return True
+    except Exception:
+        logger.warning('Failed to upload and send tutorial photo', exc_info=True)
+        return False
 
 
 def _user_cookie_menu_tutorial_text(lang: str, cookies: list[dict[str, str]] | None = None) -> str:
