@@ -3621,7 +3621,7 @@ def _user_cookie_menu_tutorial_text(lang: str, cookies: list[dict[str, str]] | N
             'با ثبت کوکی، ربات به اکانت شخصی شما متصل شده و می‌توانید از پلتفرم‌هایی که نیاز به کوکی دارند استفاده کنید.',
             '',
             '📖 راهنمای دریافت و ارسال کوکی:',
-            '۱. افزونه <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc">Get cookies.txt LOCALLY</a> را در مرورگر کروم در کامپیوتر نصب کنید.',
+            '۱. افزونه <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc">Get cookies.txt LOCALLY</a> را در مرورگر کروم کامپیوتر نصب کنید.',
             '۲. وارد سایت موردنظر (مثلاً Instagram یا YouTube) شده و لاگین کنید.',
             '۳. روی افزونه کلیک کرده و دکمه آبی‌رنگ Export را بزنید تا فایل .txt کوکی دانلود شود.',
             '۴. از دکمه «➕ افزودن/ویرایش کوکی» در زیر استفاده کرده، پلتفرم را انتخاب کنید و همان فایل .txt را برای ربات بفرستید.',
