@@ -1,15 +1,44 @@
+# Python & Bytecode
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Environments & Secrets
 .venv/
+venv/
+ENV/
+env/
 .env
-downloads/
+.env.*
+!.env.example
+*.cookie
+*.cookies
+cookies.txt
+
+# Databases & Runtime Data
 data/
 *.db
+*.sqlite
 *.sqlite3
+
+# Downloads, Backups & Logs
+downloads/
 backups/
-robodownload.png
-robodownloadbot.png
 logs/
 *.log
+
+# Bot Media & Custom Assets
+robodownload.png
+robodownloadbot.png
 cookie.png
 cookie-bot.jpg
+assets/*
+!assets/.gitkeep
+
+# IDEs & System Artifacts
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
