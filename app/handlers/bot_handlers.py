@@ -3683,6 +3683,8 @@ def _user_cookie_menu_tutorial_text(lang: str, cookies: list[dict[str, str]] | N
             '۲. وارد سایت موردنظر (مثلاً Instagram یا YouTube) شده و لاگین کنید.',
             '۳. روی افزونه کلیک کرده و دکمه آبی‌رنگ Export را بزنید تا فایل .txt کوکی دانلود شود.',
             '۴. از دکمه «➕ افزودن/ویرایش کوکی» در زیر استفاده کرده، پلتفرم را انتخاب کنید و همان فایل .txt را برای ربات بفرستید.',
+            '',
+            '💡 نکته امنیتی: جهت حفظ امنیت و حریم خصوصی، توصیه می‌شود از جیمیل یا اکانت فرعی (غیر اصلی) خود برای لاگین و استخراج کوکی استفاده فرمایید.',
         ]
         return '\n'.join(lines)
 
@@ -3696,6 +3698,8 @@ def _user_cookie_menu_tutorial_text(lang: str, cookies: list[dict[str, str]] | N
         '2. Open the platform site (e.g. Instagram or YouTube) and log in to your account.',
         '3. Click the extension icon and click the blue "Export" button to download the .txt cookie file.',
         '4. Click «➕ Add/Update cookie» below, choose the platform, and send the .txt file to the bot.',
+        '',
+        '💡 Security Tip: For safety and privacy, it is recommended to use a secondary (burner) Gmail/account rather than your primary personal account.',
     ]
     return '\n'.join(lines)
 

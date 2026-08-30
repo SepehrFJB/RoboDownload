@@ -6,12 +6,22 @@ if ! command -v apt-get >/dev/null 2>&1; then
   exit 1
 fi
 
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  if command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+  else
+    echo "ERROR: Please run this script as root or install sudo." >&2
+    exit 1
+  fi
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 
-echo "==> Updating packages and installing ffmpeg, python3, python3-venv..."
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends ffmpeg python3 python3-pip python3-venv
-sudo apt-get clean
+echo "==> Updating packages and installing ffmpeg, nodejs, python3, python3-venv..."
+$SUDO apt-get update
+$SUDO apt-get install -y --no-install-recommends ffmpeg nodejs python3 python3-pip python3-venv
+$SUDO apt-get clean
 
 python3 - <<'PY'
 import sys
@@ -33,7 +43,7 @@ echo "==> Installing Python dependencies inside .venv..."
 
 echo ""
 echo "==============================================================="
-echo "Done: ffmpeg + Python .venv + all dependencies installed!"
+echo "Done: ffmpeg + nodejs + Python .venv + all dependencies installed!"
 echo ""
 echo "To run the bot:"
 echo "  source .venv/bin/activate && python bot.py"

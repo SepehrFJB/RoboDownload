@@ -18,7 +18,8 @@ Advanced Telegram bot for downloading media from multiple platforms with `yt-dlp
 - Per-user cooldown + one-active-job guard
 - Daily success limits (user/admin/global)
 - Telegram file-id cache for faster repeated sends
-- Cookie manager in admin panel (per platform)
+- 3-tier cookie resolution hierarchy (Personal user cookies -> Global bot cookies -> Direct request)
+- User & Admin cookie management with step-by-step guide and cached tutorial image
 - Admin tools: stats, user inspect, broadcast, managers, block list, force-sub management
 - Rotating UTF-8 file logger (`logs/robodownload.log`)
 - Automatic DB & Log backup (local retention + daily owner delivery + manual export button)
@@ -26,7 +27,7 @@ Advanced Telegram bot for downloading media from multiple platforms with `yt-dlp
 - Docker-ready deployment
 
 ## Stack
-- Python 3.14.x (recommended, 3.11+ supported)
+- Python 3.11+ (Python 3.12 / 3.13 / 3.14 supported)
 - aiogram 3.x
 - yt-dlp
 - gallery-dl
@@ -72,12 +73,13 @@ chmod +x install_server.sh
    ```bash
    docker compose up -d --build
    ```
-   Docker image uses Python 3.14 (`python:3.14-slim`).
+   Docker image uses Python 3.14 (`python:3.14-slim`) with `ffmpeg` and `nodejs` preinstalled.
 
 ## Environment Variables
 - `BOT_TOKEN`: Telegram bot token (required)
 - `ADMIN_IDS`: comma-separated Telegram user IDs for admin panel access (required)
 - `GROUP_WELCOME_PHOTO_PATH`: optional photo path for the group welcome message
+- `COOKIE_TUTORIAL_PHOTO_PATH`: optional photo path for the cookie tutorial guide (default: `assets/cookie_tutorial.png`)
 - `MAX_CONCURRENT_DOWNLOADS`: global concurrent jobs (default: 3)
 - `MAX_FILE_SIZE_MB`: max file size allowed for upload (default: 49)
 - `YOUTUBE_MAX_DURATION_MINUTES`: max allowed YouTube duration (default: 30)
@@ -104,8 +106,8 @@ chmod +x install_server.sh
 
 ## Notes
 - This bot supports: YouTube, Instagram, TikTok, Twitter/X, SoundCloud.
-- Instagram restricted/private content may require valid cookies.
-- Cookies are managed from the bot admin panel per platform.
+- Instagram restricted/private content or age-restricted videos may require valid cookies.
+- Cookies can be configured individually by users (via "Cookie Settings" button) or globally by admins.
 - Group mode requirements:
   - Disable BotFather privacy mode (`/setprivacy` -> `Disable`) so the bot can read normal group messages/links.
   - Ensure the bot can send messages/media in target groups.

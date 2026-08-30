@@ -9,3 +9,4 @@ services:
       - ./data:/app/data
       - ./backups:/app/backups
       - ./logs:/app/logs
+      - ./assets:/app/assets
