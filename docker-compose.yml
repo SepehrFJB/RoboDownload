@@ -1,6 +1,7 @@
 services:
   bot:
     build: .
+    container_name: robodownload-bot
     restart: unless-stopped
     env_file:
       - .env
@@ -10,3 +11,9 @@ services:
       - ./backups:/app/backups
       - ./logs:/app/logs
       - ./assets:/app/assets
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
