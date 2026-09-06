@@ -78,8 +78,8 @@ chmod +x install_server.sh
 ## Environment Variables
 - `BOT_TOKEN`: Telegram bot token (required)
 - `ADMIN_IDS`: comma-separated Telegram user IDs for admin panel access (required)
-- `GROUP_WELCOME_PHOTO_PATH`: optional photo path for the group welcome message
-- `COOKIE_TUTORIAL_PHOTO_PATH`: optional photo path for the cookie tutorial guide (default: `assets/cookie_tutorial.png`)
+- `GROUP_WELCOME_PHOTO_PATH`: optional photo path for the group welcome message (default: `assets/robodownloadbot.png`)
+- `COOKIE_TUTORIAL_PHOTO_PATH`: optional photo path for the cookie tutorial guide (default: `assets/cookie_tutorial.jpg`)
 - `MAX_CONCURRENT_DOWNLOADS`: global concurrent jobs (default: 3)
 - `MAX_FILE_SIZE_MB`: max file size allowed for upload (default: 49)
 - `YOUTUBE_MAX_DURATION_MINUTES`: max allowed YouTube duration (default: 30)

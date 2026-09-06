@@ -25,19 +25,12 @@ data/
 *.db*
 *.sqlite*
 
+
 # Downloads, Backups & Logs
 downloads/
 backups/
 logs/
 *.log
-
-# Bot Media & Custom Assets
-robodownload.png
-robodownloadbot.png
-cookie.png
-cookie-bot.jpg
-assets/*
-!assets/.gitkeep
 
 # IDEs & System Artifacts
 .idea/
