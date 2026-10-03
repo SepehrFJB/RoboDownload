@@ -61,7 +61,6 @@ ADMIN_BUTTONS: dict[str, dict[str, str]] = {
         'fsub_toggle_enable': '✅ فعالسازی',
         'back': '🔙 بازگشت',
         'home': '🏠 خانه',
-        'cancel': '❌ لغو عملیات',
     },
     'en': {
         'inspect_user': '🔎 Check User',
@@ -95,7 +94,6 @@ ADMIN_BUTTONS: dict[str, dict[str, str]] = {
         'fsub_toggle_enable': '✅ Enable',
         'back': '🔙 Back',
         'home': '🏠 Home',
-        'cancel': '❌ Cancel',
     },
 }
 

@@ -128,11 +128,18 @@ def build_router(ctx: AppContext) -> Router:
         'fsub_toggle_enable',
         'back',
         'home',
-        'cancel',
     )
     group_blocked_admin_texts: set[str] = set()
     for key in group_admin_block_keys:
         group_blocked_admin_texts |= all_admin_button_variants(key)
+
+    def _reset_user_states(user_id: int) -> None:
+        """Clear every pending conversation state (admin + user cookie flows) for a user."""
+        admin_states.pop(user_id, None)
+        broadcast_targets.pop(user_id, None)
+        pending_cookie_platforms.pop(user_id, None)
+        user_cookie_states.pop(user_id, None)
+        user_pending_cookie_platforms.pop(user_id, None)
 
     @router.message(F.text.in_(group_blocked_admin_texts), F.chat.type.in_({'group', 'supergroup'}))
     async def ignore_admin_buttons_in_groups(message: Message) -> None:
@@ -146,6 +153,7 @@ def build_router(ctx: AppContext) -> Router:
             return
         await _track_group_chat_from_message(db=ctx.db, message=message)
         user_id = message.from_user.id
+        _reset_user_states(user_id)
         await ctx.db.upsert_user(
             user_id=user_id,
             username=message.from_user.username,
@@ -893,34 +901,17 @@ def build_router(ctx: AppContext) -> Router:
             return
         user_id = message.from_user.id
         lang = await ctx.db.get_user_language(user_id)
-        admin_states.pop(user_id, None)
-        broadcast_targets.pop(user_id, None)
-        pending_cookie_platforms.pop(user_id, None)
+        _reset_user_states(user_id)
         if user_id not in ctx.admin_ids:
-            await message.answer(tr(lang, 'admins_only'), reply_markup=ReplyKeyboardRemove())
+            await message.answer(
+                _start_welcome_text(lang),
+                reply_markup=build_user_main_keyboard(lang),
+            )
             return
         await message.answer(
             _admin_home_text(lang),
             reply_markup=build_admin_panel_keyboard(lang),
         )
-
-    @router.message(F.text.in_(all_admin_button_variants('cancel')))
-    async def admin_cancel_action_button_handler(message: Message) -> None:
-        if not message.from_user:
-            return
-        user_id = message.from_user.id
-        lang = await ctx.db.get_user_language(user_id)
-        if user_id in admin_states:
-            admin_states.pop(user_id, None)
-        if user_id in broadcast_targets:
-            broadcast_targets.pop(user_id, None)
-        if user_id in pending_cookie_platforms:
-            pending_cookie_platforms.pop(user_id, None)
-        if user_id in ctx.admin_ids:
-            await message.answer(
-                _admin_cancel_text(lang),
-                reply_markup=build_admin_panel_keyboard(lang),
-            )
 
     
     @router.message(_UserStateFilter(user_cookie_states))
@@ -2863,12 +2854,6 @@ def _force_sub_remove_select_text(lang: str) -> str:
     if lang == 'fa':
         return '⚠️ کانال مورد نظر رو برای حذف انتخاب کنید:'
     return '⚠️ Select a channel to remove:'
-
-
-def _admin_cancel_text(lang: str) -> str:
-    if lang == 'fa':
-        return 'عملیات لغو شد.'
-    return 'Canceled.'
 
 
 def _admin_force_sub_menu_text(lang: str) -> str:
