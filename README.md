@@ -2,6 +2,11 @@
 
 Advanced Telegram bot for downloading media from multiple platforms with `yt-dlp` and `gallery-dl`.
 
+<p align="center">
+  <img src="assets/preview.jpg" alt="RoboDownload Preview 1" width="45%"/>
+  <img src="assets/preview2.jpg" alt="RoboDownload Preview 2" width="45%"/>
+</p>
+
 ## Features
 - YouTube video download with quality options (`1080p`, `720p`, `480p`, `360p`, `240p`)
 - Audio extraction to MP3
